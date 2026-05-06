@@ -178,21 +178,66 @@ function addMessage(role, content) {
                             section.match(/^\*\*/) ||
                             section.match(/^[1-9][.、]/);
 
-            // Clean text for copying — defined for ALL branches to avoid ReferenceError
-            // Strip header/description lines before actual message content.
-            // Headers look like "话术1：", "第三步：", "简洁版：" — remove them.
-            const cleanText = section
-                .replace(/^.*(话术|第[一二三四五六七八九十\d]步|建议|步骤|方案|时机|版)[：: ].*\n*/gm, '')  // remove header lines
-                .replace(/^\*\*([^*]+)\*\*/gm, '$1')   // unwrap **bold headers** (keep text)
-                .replace(/^> /gm, '')                    // remove > blockquote prefixes
-                .replace(/^[*-] /gm, '')                 // remove bullet points
-                .replace(/^\d+[.、]/gm, '')              // remove numbered prefixes
-                .replace(/^\w+\d+[：:]/gm, '')          // remove "话术1：" type patterns
-                .replace(/^#+\s*/gm, '')                 // remove markdown headers
-                .replace(/\*\*/g, '').replace(/\*/g, '') // remove remaining *
-                .replace(/`/g, '').replace(/~~/g, '')    // remove code/~~
-                .replace(/\n{3,}/g, '\n\n')             // normalize spacing
-                .trim();
+            // Clean text for copying — extract ONLY the actual WhatsApp message body.
+            // Strategy:
+            //   1. If section contains any `> ...` blockquote lines → those ARE the message;
+            //      keep them (with `> ` stripped) and drop everything else.
+            //   2. Otherwise, fall back to filtering out header-like lines.
+            const cleanText = (function(raw) {
+                const lines = raw.split('\n');
+                const quoted = lines.filter(function(l) { return /^\s*>/.test(l); });
+
+                // Header detection: lines that look like titles/labels, not message body
+                function isHeaderLine(line) {
+                    const t = line.trim();
+                    if (!t) return false;
+                    // Pure markdown header (### ...)
+                    if (/^#+\s/.test(t)) return true;
+                    // 话术1：xxx / 话术 1：xxx
+                    if (/^\**\s*话术\s*\d+\s*[：:]/.test(t)) return true;
+                    // 第X步：xxx / 第三步：引导复购（3-4周后发）
+                    if (/^\**\s*第[一二三四五六七八九十百\d]+步\s*[：:]/.test(t)) return true;
+                    // 简洁版（适合客户比较忙）：/ 详细版：
+                    if (/^\**\s*[^\s>]{1,15}版\s*[（(]?[^：:]{0,30}[）)]?\s*[：:]\s*$/.test(t)) return true;
+                    // 建议发送时机： / 发送时机： / 时机：
+                    if (/^\**\s*(建议)?(发送)?时机\s*[：:]/.test(t)) return true;
+                    // 建议：/ 步骤：/ 方案：（裸标签结尾）
+                    if (/^\**\s*(建议|步骤|方案|说明|目的|用法|注意)\s*[：:]\s*$/.test(t)) return true;
+                    // 纯括号装饰行 (推荐首选) / （推荐）
+                    if (/^[（(][^）)]+[）)]\s*$/.test(t)) return true;
+                    // **加粗标题** 整行（不含其他实质内容）
+                    if (/^\*\*[^*\n]+\*\*\s*[：:]?\s*$/.test(t)) return true;
+                    // 数字/字母编号短行：1. xxx / A) xxx — 仅当后面无 > 才算装饰；这里直接保留
+                    return false;
+                }
+
+                let body;
+                if (quoted.length > 0) {
+                    // Keep ONLY the quoted message lines + blank lines between them.
+                    // Find first and last quoted line index, keep everything in between
+                    // (so multi-paragraph messages with blank lines stay intact),
+                    // but drop any non-quoted, non-blank line that sneaks in (e.g. header).
+                    const firstQ = lines.findIndex(function(l) { return /^\s*>/.test(l); });
+                    let lastQ = -1;
+                    for (let i = lines.length - 1; i >= 0; i--) {
+                        if (/^\s*>/.test(lines[i])) { lastQ = i; break; }
+                    }
+                    const slice = lines.slice(firstQ, lastQ + 1);
+                    body = slice
+                        .filter(function(l) { return /^\s*>/.test(l) || l.trim() === ''; })
+                        .map(function(l) { return l.replace(/^\s*>\s?/, ''); })
+                        .join('\n');
+                } else {
+                    // No blockquotes — drop header-looking lines, keep the rest
+                    body = lines.filter(function(l) { return !isHeaderLine(l); }).join('\n');
+                }
+
+                return body
+                    .replace(/\*\*/g, '').replace(/\*/g, '')  // strip bold/italic markers
+                    .replace(/`/g, '').replace(/~~/g, '')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+            })(section);
             const encoded = encodeURIComponent(cleanText);
             const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
             
