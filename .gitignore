@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 .gsheet-credentials.json
 .pid
+wa_session/

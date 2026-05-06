@@ -10,7 +10,14 @@
             <p class="text-sm text-gray-500">📱 {{ customer.phone_whatsapp or '未设置 WhatsApp 号码' }}</p>
         </div>
         <div class="text-right text-xs text-gray-500">
-            {% if cfg and cfg.is_active and cfg.access_token %}
+            {% if use_web %}
+                {% if wa_state and wa_state.status == 'ready' %}
+                    <span class="px-2 py-1 bg-green-100 text-green-700 rounded-full">● WA Web 已登录</span>
+                {% else %}
+                    <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full">⚠️ WA Web 未登录</span>
+                    <div class="mt-1"><a href="/whatsapp/qr" class="text-hk3-600 underline">去扫码</a></div>
+                {% endif %}
+            {% elif cfg and cfg.is_active and cfg.access_token %}
                 <span class="px-2 py-1 bg-green-100 text-green-700 rounded-full">● API 已连接</span>
             {% else %}
                 <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full">⚠️ 未配置 API</span>
@@ -82,7 +89,8 @@
         status.textContent = '发送中…';
         status.className = 'text-xs text-gray-500';
         try {
-            const r = await fetch('/api/whatsapp/send', {
+            const endpoint = {{ 'true' if use_web else 'false' }} ? '/api/whatsapp/web/send' : '/api/whatsapp/send';
+            const r = await fetch(endpoint, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({customer_id: {{ customer.id }}, message: msg})

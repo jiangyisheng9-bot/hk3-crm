@@ -2,11 +2,17 @@
 HK3 CRM — Web Application
 Sales Funnel CRM for HK3 Marketing Sdn Bhd
 """
-import os, sys, uuid, json
+import os, sys, uuid, json, re, threading, time
 from datetime import datetime, date, timedelta
 from dateutil import relativedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
+
+try:
+    import whatsapp_web as wa_web
+except Exception as _e:
+    wa_web = None
+    print(f'[warn] whatsapp_web module not available: {_e}')
 
 app = Flask(__name__)
 app.secret_key = 'hk3-crm-secret-key-change-in-production'
@@ -1153,6 +1159,174 @@ def api_whatsapp_send():
     return jsonify({'ok': True, 'wamid': wamid, 'response': resp})
 
 
+# ─── WhatsApp Web (QR scan login via Playwright) ─────────────────
+
+@app.route('/whatsapp/qr')
+def whatsapp_qr_page():
+    if wa_web is None:
+        flash('Playwright 未安装，请运行 install_whatsapp_deps.sh', 'warning')
+    else:
+        wa_web.request_start()
+        _ensure_wa_poller()
+    return render_template('whatsapp_qr.html')
+
+
+@app.route('/whatsapp/qr-status')
+def whatsapp_qr_status():
+    if wa_web is None:
+        return jsonify({'status': 'error', 'last_error': 'whatsapp_web module not loaded'}), 503
+    return jsonify(wa_web.get_state())
+
+
+@app.route('/whatsapp/qr-refresh', methods=['POST'])
+def whatsapp_qr_refresh():
+    if wa_web is None:
+        return jsonify({'ok': False, 'error': 'module missing'}), 503
+    wa_web.request_refresh_qr()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/whatsapp/web/send', methods=['POST'])
+def api_whatsapp_web_send():
+    """Send a WhatsApp message via the logged-in WhatsApp Web session."""
+    if wa_web is None:
+        return jsonify({'ok': False, 'error': 'WhatsApp Web 模块未加载'}), 503
+    data = request.get_json(silent=True) or request.form
+    customer_id = data.get('customer_id')
+    message = (data.get('message') or '').strip()
+    if not customer_id or not message:
+        return jsonify({'ok': False, 'error': '缺少 customer_id 或 message'}), 400
+    try:
+        customer_id = int(customer_id)
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'customer_id 无效'}), 400
+    c = Customer.query.get(customer_id)
+    if not c:
+        return jsonify({'ok': False, 'error': '客户不存在'}), 404
+    if not c.phone_whatsapp:
+        return jsonify({'ok': False, 'error': '该客户没有 WhatsApp 号码'}), 400
+
+    res = wa_web.send_sync(c.phone_whatsapp, message, timeout=45)
+    inter = Interaction(
+        interaction_id=f'WAW-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}-{c.id}',
+        customer_id=c.id,
+        timestamp=datetime.utcnow(),
+        channel='WhatsApp Web',
+        direction='出站',
+        content_summary=(message[:200] + ('' if res.get('ok') else ' [失败]')),
+        whatsapp_content=message,
+        intent='主动跟进' if res.get('ok') else '发送失败',
+        handled_by='CRM/WAWeb'
+    )
+    db.session.add(inter)
+    c.total_interactions = (c.total_interactions or 0) + 1
+    c.last_contact_date = datetime.utcnow()
+    c.last_contact_channel = 'WhatsApp'
+    db.session.commit()
+    if not res.get('ok'):
+        return jsonify({'ok': False, 'error': res.get('error', '发送失败')}), 502
+    return jsonify({'ok': True})
+
+
+@app.route('/api/whatsapp/web/poll', methods=['POST'])
+def api_whatsapp_web_poll():
+    """Manually trigger a poll of incoming WA Web messages and import them."""
+    if wa_web is None:
+        return jsonify({'ok': False, 'error': 'module missing'}), 503
+    msgs = wa_web.poll_messages_sync(timeout=25)
+    imported = _import_wa_messages(msgs)
+    return jsonify({'ok': True, 'fetched': len(msgs), 'imported': imported})
+
+
+def _import_wa_messages(msgs):
+    """Persist polled WhatsApp Web messages as Interaction rows."""
+    if not msgs:
+        return 0
+    n = 0
+    for m in msgs:
+        try:
+            phone = m.get('phone') or ''
+            text = (m.get('text') or '').strip()
+            if not text:
+                continue
+            customer = None
+            if phone:
+                customer = find_or_create_customer_by_phone(phone, m.get('name'))
+            else:
+                # No phone — try to match by name only; otherwise skip.
+                if m.get('name'):
+                    customer = Customer.query.filter_by(name=m.get('name')).first()
+            if not customer:
+                continue
+            inter = Interaction(
+                interaction_id=f'WAW-IN-{datetime.utcnow().strftime("%Y%m%d%H%M%S%f")}-{customer.id}',
+                customer_id=customer.id,
+                timestamp=datetime.utcnow(),
+                channel='WhatsApp Web',
+                direction='入站',
+                content_summary=text[:200],
+                whatsapp_content=text,
+                intent='客户咨询',
+                handled_by='WAWebPoller'
+            )
+            db.session.add(inter)
+            customer.total_interactions = (customer.total_interactions or 0) + 1
+            customer.last_contact_date = datetime.utcnow()
+            customer.last_contact_channel = 'WhatsApp'
+            n += 1
+        except Exception as e:
+            app.logger.warning(f'[WA-Web import] {e}')
+    if n:
+        db.session.commit()
+    return n
+
+
+# Background poller — checks WhatsApp Web every N seconds.
+_wa_poller_started = False
+_wa_poller_lock = threading.Lock()
+
+
+def _wa_poller_loop():
+    while True:
+        try:
+            time.sleep(60)
+            if wa_web is None:
+                continue
+            st = wa_web.get_state()
+            if st.get('status') != 'ready':
+                continue
+            msgs = wa_web.poll_messages_sync(timeout=25)
+            if msgs:
+                with app.app_context():
+                    _import_wa_messages(msgs)
+        except Exception as e:
+            app.logger.warning(f'[wa-poller] {e}')
+
+
+def _ensure_wa_poller():
+    global _wa_poller_started
+    with _wa_poller_lock:
+        if _wa_poller_started:
+            return
+        _wa_poller_started = True
+        threading.Thread(target=_wa_poller_loop, name='wa-poller', daemon=True).start()
+
+
+@app.route('/customers/<int:id>/whatsapp-reply', methods=['GET'])
+def customer_whatsapp_reply(id):
+    """WhatsApp Web reply view — alias of conversation view, but uses WA Web sender."""
+    c = Customer.query.get_or_404(id)
+    interactions = (Interaction.query
+                    .filter_by(customer_id=id)
+                    .filter(Interaction.channel.in_(['WhatsApp API', 'WhatsApp Web', 'WhatsApp Chat']))
+                    .order_by(Interaction.timestamp.asc())
+                    .all())
+    wa_state = wa_web.get_state() if wa_web else {'status': 'stopped'}
+    return render_template('whatsapp_conversation.html',
+                           customer=c, interactions=interactions, cfg=get_whatsapp_config(),
+                           wa_state=wa_state, use_web=True)
+
+
 @app.route('/customers/<int:id>/whatsapp')
 def customer_whatsapp_conversation(id):
     c = Customer.query.get_or_404(id)
@@ -1162,7 +1336,8 @@ def customer_whatsapp_conversation(id):
                     .all())
     cfg = get_whatsapp_config()
     return render_template('whatsapp_conversation.html',
-                           customer=c, interactions=interactions, cfg=cfg)
+                           customer=c, interactions=interactions, cfg=cfg,
+                           wa_state=None, use_web=False)
 
 
 # ─── Init DB ─────────────────────────────────────────────────────
@@ -1187,6 +1362,7 @@ def init_db():
 if __name__ == '__main__':
     with app.app_context():
         init_db()
+    _ensure_wa_poller()
     print('🚀 HK3 CRM 启动中...')
     print(f'📊 打开浏览器访问: http://127.0.0.1:5000')
     app.run(debug=True, host='127.0.0.1', port=5001)
