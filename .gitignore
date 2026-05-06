@@ -1,0 +1,7 @@
+*.db
+*.db-journal
+venv/
+__pycache__/
+*.pyc
+.gsheet-credentials.json
+.pid
