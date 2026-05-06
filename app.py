@@ -10,6 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 app.secret_key = 'hk3-crm-secret-key-change-in-production'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'hk3_crm.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -732,16 +733,67 @@ def customer_ai_chat(id):
 def customer_whatsapp_upload(id):
     c = Customer.query.get_or_404(id)
     if request.method == 'POST':
-        content = request.form.get('whatsapp_content', '').strip()
+        content = ''
+        filename = ''
+        file_size = 0
+        
+        # 方式1：上传 ZIP 文件（WhatsApp 导出格式）
+        if 'zip_file' in request.files and request.files['zip_file'].filename:
+            f = request.files['zip_file']
+            filename = f.filename
+            file_size = len(f.read())
+            f.seek(0)
+            
+            # Save to temp and extract
+            import zipfile
+            import tempfile
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
+                    f.save(tmp.name)
+                    with zipfile.ZipFile(tmp.name, 'r') as zf:
+                        # Find the _chat.txt file (WhatsApp export format)
+                        txt_files = [n for n in zf.namelist() if n.endswith('.txt')]
+                        if txt_files:
+                            # Usually the main chat file
+                            chat_file = txt_files[0]
+                            content = zf.read(chat_file).decode('utf-8', errors='replace')
+                        else:
+                            # Try reading any readable file
+                            for name in zf.namelist():
+                                try:
+                                    content = zf.read(name).decode('utf-8', errors='replace')
+                                    if len(content) > 100:
+                                        break
+                                except:
+                                    continue
+                    os.unlink(tmp.name)
+            except Exception as e:
+                flash(f'ZIP 文件解析失败：{e}', 'warning')
+                return render_template('whatsapp_upload.html', customer=c)
+        
+        # 方式2：直接粘贴文本（备用）
+        if not content:
+            content = request.form.get('whatsapp_content', '').strip()
+        
         if content:
-            # Store as interaction
+            # Truncate if too long
+            if len(content) > 50000:
+                content = content[:50000] + '\n\n...（记录过长，已截断至50000字）'
+            
+            # Generate summary
+            lines = content.split('\n')
+            summary = f'上传的聊天记录（{len(lines)}行, {len(content)}字）'
+            if filename:
+                summary += f' | 文件：{filename}（{file_size//1024}KB）'
+            
             i = Interaction(
                 interaction_id=f'WA-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}-{id}',
                 customer_id=id,
                 channel='WhatsApp Chat',
                 direction='双方',
-                content_summary=f'上传的聊天记录（{len(content)}字）',
+                content_summary=summary,
                 whatsapp_content=content,
+                attachments=filename or None,
                 intent='客户跟进',
                 handled_by='用户上传'
             )
@@ -750,9 +802,9 @@ def customer_whatsapp_upload(id):
             c.last_contact_date = datetime.utcnow()
             c.last_contact_channel = 'WhatsApp'
             db.session.commit()
-            flash('WhatsApp 聊天记录已上传！', 'success')
+            flash('WhatsApp 聊天记录已上传！可以在 AI 助手中使用。', 'success')
         else:
-            flash('请粘贴聊天内容', 'warning')
+            flash('请上传 WhatsApp 导出的 ZIP 文件或粘贴聊天内容', 'warning')
         return redirect(url_for('customer_detail', id=id))
     return render_template('whatsapp_upload.html', customer=c)
 
