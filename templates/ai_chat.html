@@ -30,6 +30,7 @@
                     <div><span class="text-gray-400">LTV：</span>RM{{ customer.ltv or 0 }}</div>
                     <div><span class="text-gray-400">上次购买：</span>{{ customer.last_order_date or '-' }}</div>
                     <div><span class="text-gray-400">健康：</span>{{ customer.health_concerns or '-' }}</div>
+                    <div><span class="text-gray-400">WA：</span><a href="https://wa.me/{{ customer.phone_whatsapp | replace('+','') }}" target="_blank" class="text-green-600 hover:underline">{{ customer.phone_whatsapp or '-' }}</a></div>
                 </div>
             </div>
 
@@ -96,7 +97,7 @@
         </div>
 
         <!-- Chat Interface -->
-        <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col" style="height: 600px;">
+        <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col" style="height: 650px;">
             <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl">
                 <div class="flex items-center justify-between">
                     <h3 class="font-semibold text-gray-700">💬 DeepSeek 对话</h3>
@@ -136,20 +137,75 @@
 <script>
 let chatHistory = [];
 const customerId = {{ customer.id }};
+const customerPhone = "{{ customer.phone_whatsapp or '' }}".replace('+', '');
 
 function addMessage(role, content) {
     const container = document.getElementById('chat-messages');
     const div = document.createElement('div');
     const isUser = role === 'user';
+    const msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    
     div.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
+    
+    let buttonsHtml = '';
+    if (!isUser) {
+        const encoded = encodeURIComponent(content);
+        const waLink = customerPhone ? `https://wa.me/${customerPhone}?text=${encoded}` : '#';
+        buttonsHtml = `
+            <div class="flex items-center space-x-2 mt-2 pt-2 border-t border-gray-200">
+                <button onclick="copyMessage('${msgId}')" 
+                        class="text-xs px-2 py-1 bg-white border border-gray-300 rounded hover:bg-gray-50 flex items-center space-x-1"
+                        title="复制内容">
+                    <span>📋</span><span>复制</span>
+                </button>
+                ${customerPhone ? `
+                <a href="${waLink}" target="_blank"
+                   class="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 flex items-center space-x-1"
+                   title="发 WhatsApp">
+                    <span>📱</span><span>发 WhatsApp</span>
+                </a>` : ''}
+                <span class="text-xs text-gray-400">点击复制或直接发 WhatsApp</span>
+            </div>
+        `;
+    }
+    
     div.innerHTML = `
-        <div class="max-w-[80%] p-3 rounded-lg ${isUser ? 'bg-hk3-600 text-white' : 'bg-gray-100 text-gray-800'}">
-            <div class="text-sm whitespace-pre-wrap">${content}</div>
-            <div class="text-xs ${isUser ? 'text-green-200' : 'text-gray-400'} mt-1">${isUser ? '你' : 'AI'}</div>
+        <div class="max-w-[85%]">
+            <div class="p-3 rounded-lg ${isUser ? 'bg-hk3-600 text-white' : 'bg-gray-100 text-gray-800'}">
+                <div id="${msgId}" class="text-sm whitespace-pre-wrap">${content}</div>
+                <div class="text-xs ${isUser ? 'text-green-200' : 'text-gray-400'} mt-1">${isUser ? '你' : 'AI 助手'}</div>
+            </div>
+            ${buttonsHtml}
         </div>
     `;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
+}
+
+function copyMessage(elementId) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    
+    // Get text content (exclude any inner elements)
+    const text = el.textContent || el.innerText;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        // Show brief feedback
+        const btn = el.closest('.max-w-\\[85\\%\\]').querySelector('button');
+        if (btn) {
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<span>✅</span><span>已复制</span>';
+            setTimeout(() => { btn.innerHTML = orig; }, 2000);
+        }
+    }).catch(err => {
+        // Fallback: select text
+        const range = document.createRange();
+        range.selectNode(el);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        document.execCommand('copy');
+        window.getSelection().removeAllRanges();
+    });
 }
 
 function addTyping() {
@@ -213,4 +269,14 @@ function sendMessage(text) {
     });
 }
 </script>
+
+<style>
+@keyframes bounce {
+    0%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-6px); }
+}
+.animate-bounce {
+    animation: bounce 1.4s infinite ease-in-out;
+}
+</style>
 {% endblock %}

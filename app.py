@@ -598,14 +598,20 @@ def call_deepseek(prompt, system_prompt='你是HK3 CRM的AI销售助手，擅长
 def settings_page():
     if request.method == 'POST':
         key = request.form.get('deepseek_api_key', '').strip()
-        s = Setting.query.filter_by(key='deepseek_api_key').first()
-        if s:
-            s.value = key
+        # Don't save if it's the masked placeholder '********'
+        if key and key != '********':
+            s = Setting.query.filter_by(key='deepseek_api_key').first()
+            if s:
+                s.value = key
+            else:
+                s = Setting(key='deepseek_api_key', value=key)
+                db.session.add(s)
+            db.session.commit()
+            flash('API Key 已保存！', 'success')
+        elif not key:
+            flash('请输入 API Key', 'warning')
         else:
-            s = Setting(key='deepseek_api_key', value=key)
-            db.session.add(s)
-        db.session.commit()
-        flash('API Key 已保存！', 'success')
+            flash('API Key 未变更', 'info')
         return redirect(url_for('settings_page'))
     current_key = get_deepseek_api_key()
     masked = current_key[:8] + '...' + current_key[-4:] if current_key and len(current_key) > 15 else ''
