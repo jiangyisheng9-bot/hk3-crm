@@ -180,8 +180,21 @@ function addMessage(role, content) {
             
             if (isScript && sections.length > 1) {
                 // Each script section gets its own card + buttons
-                const cleanText = section.replace(/\*\*/g, '').replace(/\*/g, '');
-                const encoded = encodeURIComponent(cleanText);
+                // Clean text for copying: remove **, >, markdown, and header/description lines
+                const cleanText = section
+                    .replace(/^\*\*([^*]+)\*\*/gm, '')  // remove **bold headers**
+                    .replace(/^> /gm, '')                  // remove > blockquote prefixes
+                    .replace(/^[*-] /gm, '')               // remove bullet points
+                    .replace(/^\d+[.、]/gm, '')           // remove numbered prefixes
+                    .replace(/^#+\s*/gm, '')              // remove markdown headers
+                    .replace(/\*\*/g, '').replace(/\*/g, '')  // remove remaining *
+                    .replace(/`/g, '').replace(/~~/g, '')      // remove code/~~
+                    .replace (/\n{3,}/g, '\n\n')            // normalize spacing
+                    .trim();
+                const plainText = cleanText
+                    .replace(/\n{3,}/g, '\n\n')  // compact multiple newlines
+                    .trim();
+                const encoded = encodeURIComponent(plainText);
                 const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
                 
                 html += `
@@ -224,7 +237,7 @@ function addMessage(role, content) {
                                 <span>📱</span><span>发 WhatsApp</span>
                             </a>` : ''}
                         </div>
-                        <div id="${sectionId}" class="hidden">${escapeHtml(section.replace(/\*\*/g, '').replace(/\*/g, ''))}</div>
+                        <div id="${sectionId}" class="hidden">${escapeHtml(cleanText)}</div>
                     </div>
                 `;
             }
