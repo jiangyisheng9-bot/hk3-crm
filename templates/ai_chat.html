@@ -97,7 +97,7 @@
         </div>
 
         <!-- Chat Interface -->
-        <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col" style="height: 650px;">
+        <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col" style="height: 700px;">
             <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl">
                 <div class="flex items-center justify-between">
                     <h3 class="font-semibold text-gray-700">💬 DeepSeek 对话</h3>
@@ -139,66 +139,124 @@ let chatHistory = [];
 const customerId = {{ customer.id }};
 const customerPhone = "{{ customer.phone_whatsapp or '' }}".replace('+', '');
 
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 function addMessage(role, content) {
     const container = document.getElementById('chat-messages');
     const div = document.createElement('div');
     const isUser = role === 'user';
-    const msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
     
-    div.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
+    div.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
     
-    let buttonsHtml = '';
-    if (!isUser) {
-        const encoded = encodeURIComponent(content);
-        const waLink = customerPhone ? `https://wa.me/${customerPhone}?text=${encoded}` : '#';
-        buttonsHtml = `
-            <div class="flex items-center space-x-2 mt-2 pt-2 border-t border-gray-200">
-                <button onclick="copyMessage('${msgId}')" 
-                        class="text-xs px-2 py-1 bg-white border border-gray-300 rounded hover:bg-gray-50 flex items-center space-x-1"
-                        title="复制内容">
-                    <span>📋</span><span>复制</span>
-                </button>
-                ${customerPhone ? `
-                <a href="${waLink}" target="_blank"
-                   class="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 flex items-center space-x-1"
-                   title="发 WhatsApp">
-                    <span>📱</span><span>发 WhatsApp</span>
-                </a>` : ''}
-                <span class="text-xs text-gray-400">点击复制或直接发 WhatsApp</span>
+    if (isUser) {
+        // User message - simple display
+        div.innerHTML = `
+            <div class="max-w-[85%]">
+                <div class="p-3 rounded-lg bg-hk3-600 text-white">
+                    <div class="text-sm whitespace-pre-wrap">${escapeHtml(content)}</div>
+                    <div class="text-xs text-green-200 mt-1">你</div>
+                </div>
             </div>
         `;
+    } else {
+        // AI message - parse into sections
+        let html = '<div class="max-w-[90%]">';
+        
+        // Split by --- separators
+        const sections = content.split(/\n---+\n/);
+        
+        for (let si = 0; si < sections.length; si++) {
+            const section = sections[si].trim();
+            if (!section) continue;
+            
+            const sectionId = 'sec-' + Date.now() + '-' + si + '-' + Math.random().toString(36).substr(2, 3);
+            const isScript = section.match(/(话术|话术|script|建议|方案)\s*\d/i) || 
+                            section.match(/^\*\*/) ||
+                            section.match(/^[1-9][.、]/);
+            
+            if (isScript && sections.length > 1) {
+                // Each script section gets its own card + buttons
+                const cleanText = section.replace(/\*\*/g, '').replace(/\*/g, '');
+                const encoded = encodeURIComponent(cleanText);
+                const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
+                
+                html += `
+                    <div class="p-3 my-2 rounded-lg border border-green-200 bg-green-50">
+                        <div class="text-sm whitespace-pre-wrap text-gray-800">${escapeHtml(section)}</div>
+                        <div class="flex items-center space-x-2 mt-2 pt-2 border-t border-green-200">
+                            <button onclick="copySection('${sectionId}')" 
+                                    class="text-xs px-3 py-1.5 bg-white border border-green-400 text-green-700 rounded-lg hover:bg-green-100 flex items-center space-x-1 font-medium">
+                                <span>📋</span><span>复制此话术</span>
+                            </button>
+                            ${customerPhone ? `
+                            <a href="${waLink}" target="_blank"
+                               class="text-xs px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center space-x-1 font-medium">
+                                <span>📱</span><span>发 WhatsApp</span>
+                            </a>` : ''}
+                        </div>
+                        <div id="${sectionId}" class="hidden">${escapeHtml(cleanText)}</div>
+                    </div>
+                `;
+            } else if (sections.length > 1) {
+                // Non-script section between scripts (like analysis, timing advice)
+                html += `
+                    <div class="p-3 my-1 rounded-lg bg-gray-50 text-gray-600 text-sm whitespace-pre-wrap">${escapeHtml(section)}</div>
+                `;
+            } else {
+                // Single section - whole message with full copy
+                const encoded = encodeURIComponent(section);
+                const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
+                html += `
+                    <div class="p-3 rounded-lg bg-gray-100 text-gray-800">
+                        <div class="text-sm whitespace-pre-wrap">${escapeHtml(section)}</div>
+                        <div class="flex items-center space-x-2 mt-2 pt-2 border-t border-gray-200">
+                            <button onclick="copySection('${sectionId}')" 
+                                    class="text-xs px-3 py-1.5 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 flex items-center space-x-1 font-medium">
+                                <span>📋</span><span>复制</span>
+                            </button>
+                            ${customerPhone ? `
+                            <a href="${waLink}" target="_blank"
+                               class="text-xs px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center space-x-1 font-medium">
+                                <span>📱</span><span>发 WhatsApp</span>
+                            </a>` : ''}
+                        </div>
+                        <div id="${sectionId}" class="hidden">${escapeHtml(section.replace(/\*\*/g, '').replace(/\*/g, ''))}</div>
+                    </div>
+                `;
+            }
+        }
+        
+        html += '<div class="text-xs text-gray-400 mt-1">AI 助手</div></div>';
+        div.innerHTML = html;
     }
     
-    div.innerHTML = `
-        <div class="max-w-[85%]">
-            <div class="p-3 rounded-lg ${isUser ? 'bg-hk3-600 text-white' : 'bg-gray-100 text-gray-800'}">
-                <div id="${msgId}" class="text-sm whitespace-pre-wrap">${content}</div>
-                <div class="text-xs ${isUser ? 'text-green-200' : 'text-gray-400'} mt-1">${isUser ? '你' : 'AI 助手'}</div>
-            </div>
-            ${buttonsHtml}
-        </div>
-    `;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
 
-function copyMessage(elementId) {
+function copySection(elementId) {
     const el = document.getElementById(elementId);
     if (!el) return;
     
-    // Get text content (exclude any inner elements)
     const text = el.textContent || el.innerText;
     
-    navigator.clipboard.writeText(text).then(() => {
-        // Show brief feedback
-        const btn = el.closest('.max-w-\\[85\\%\\]').querySelector('button');
-        if (btn) {
-            const orig = btn.innerHTML;
-            btn.innerHTML = '<span>✅</span><span>已复制</span>';
-            setTimeout(() => { btn.innerHTML = orig; }, 2000);
+    navigator.clipboard.writeText(text).then(function() {
+        // Find the button that was clicked
+        const card = el.closest('.p-3');
+        if (card) {
+            const btn = card.querySelector('button');
+            if (btn) {
+                const orig = btn.innerHTML;
+                btn.innerHTML = '<span>✅</span><span>已复制</span>';
+                setTimeout(function() { btn.innerHTML = orig; }, 2000);
+            }
         }
-    }).catch(err => {
-        // Fallback: select text
+    }).catch(function() {
+        // Fallback
         const range = document.createRange();
         range.selectNode(el);
         window.getSelection().removeAllRanges();
@@ -213,15 +271,7 @@ function addTyping() {
     const div = document.createElement('div');
     div.id = 'typing-indicator';
     div.className = 'flex justify-start';
-    div.innerHTML = `
-        <div class="bg-gray-100 rounded-lg p-3">
-            <div class="flex space-x-1">
-                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:0ms"></div>
-                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:150ms"></div>
-                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:300ms"></div>
-            </div>
-        </div>
-    `;
+    div.innerHTML = '<div class="bg-gray-100 rounded-lg p-3"><div class="flex space-x-1"><div class="w-2 h-2 bg-gray-400 rounded-full" style="animation:dot 1.4s infinite;animation-delay:0ms"></div><div class="w-2 h-2 bg-gray-400 rounded-full" style="animation:dot 1.4s infinite;animation-delay:150ms"></div><div class="w-2 h-2 bg-gray-400 rounded-full" style="animation:dot 1.4s infinite;animation-delay:300ms"></div></div></div>';
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
@@ -248,13 +298,13 @@ function sendMessage(text) {
     
     chatHistory.push({role: 'user', content: message});
     
-    fetch(`/api/ai/chat/${customerId}`, {
+    fetch('/api/ai/chat/' + customerId, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({message: message, history: chatHistory.slice(-20)})
     })
-    .then(r => r.json())
-    .then(data => {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
         removeTyping();
         if (data.ok) {
             addMessage('assistant', data.result);
@@ -263,7 +313,7 @@ function sendMessage(text) {
             addMessage('assistant', '❌ ' + (data.error || '请求失败'));
         }
     })
-    .catch(err => {
+    .catch(function() {
         removeTyping();
         addMessage('assistant', '❌ 网络错误，请重试');
     });
@@ -271,12 +321,9 @@ function sendMessage(text) {
 </script>
 
 <style>
-@keyframes bounce {
+@keyframes dot {
     0%, 80%, 100% { transform: translateY(0); }
     40% { transform: translateY(-6px); }
-}
-.animate-bounce {
-    animation: bounce 1.4s infinite ease-in-out;
 }
 </style>
 {% endblock %}
