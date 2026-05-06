@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}跟进任务{% endblock %}
+{% block content %}
+<div class="space-y-4">
+    <h1 class="text-2xl font-bold text-gray-800">📋 跟进任务</h1>
+    <div class="flex space-x-2">
+        <a href="/followups" class="px-4 py-2 rounded-lg {% if not status %}bg-hk3-600 text-white{% else %}bg-white border text-gray-600{% endif %}">全部</a>
+        <a href="/followups?status=待执行" class="px-4 py-2 rounded-lg {% if status == '待执行' %}bg-yellow-500 text-white{% else %}bg-white border text-gray-600{% endif %}">待执行</a>
+        <a href="/followups?status=已执行" class="px-4 py-2 rounded-lg {% if status == '已执行' %}bg-green-600 text-white{% else %}bg-white border text-gray-600{% endif %}">已执行</a>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        {% for f in followups.items %}
+        <div class="flex items-center justify-between p-4 {% if not loop.last %}border-b border-gray-100{% endif %} hover:bg-gray-50">
+            <div class="flex-1">
+                <div class="flex items-center space-x-2">
+                    <span class="font-medium">{{ f.type }}</span>
+                    <a href="/customers/{{ f.customer_id }}" class="text-hk3-600 hover:underline text-sm">{{ f.customer.name if f.customer else '??' }}</a>
+                </div>
+                <div class="text-sm text-gray-500 mt-1">{{ f.content }}</div>
+                {% if f.trigger_reason %}
+                <div class="text-xs text-gray-400 mt-1">触发：{{ f.trigger_reason }}</div>
+                {% endif %}
+            </div>
+            <div class="flex items-center space-x-3">
+                <span class="text-xs text-gray-400">{{ f.scheduled_at.strftime('%m-%d') if f.scheduled_at else '' }}</span>
+                {% if f.status == '待执行' %}
+                <form method="POST" action="/followups/{{ f.id }}/complete" class="flex items-center space-x-2">
+                    <input type="text" name="result" placeholder="完成备注" class="px-2 py-1 border rounded text-xs w-24">
+                    <button type="submit" class="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">✅ 完成</button>
+                </form>
+                {% else %}
+                <span class="px-2 py-1 rounded text-xs bg-green-100 text-green-700">已完成</span>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="text-center py-12 text-gray-400">暂无跟进任务</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

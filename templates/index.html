@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-800">📊 Dashboard</h1>
+        <a href="/customers/new" class="bg-hk3-600 text-white px-4 py-2 rounded-lg hover:bg-hk3-700 transition font-medium">+ 新增客户</a>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">客户总数</div>
+            <div class="text-3xl font-bold text-hk3-700">{{ total }}</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">总销售额</div>
+            <div class="text-3xl font-bold text-blue-700">RM {{ "%.0f"|format(total_revenue) }}</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">总订单</div>
+            <div class="text-3xl font-bold text-purple-700">{{ total_orders }}</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">待跟进</div>
+            <div class="text-3xl font-bold text-orange-600">{{ pending_followups }}</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">⚠️ 逾期复购</div>
+            <div class="text-3xl font-bold text-red-600">{{ overdue_count }}</div>
+        </div>
+    </div>
+
+    <!-- Funnel + Repurchase Widget -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-2 bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">🔻 销售漏斗</h2>
+            <div class="space-y-3">
+                {% set colors = {'认知': 'bg-blue-400', '兴趣': 'bg-cyan-400', '询盘': 'bg-yellow-400', '成交': 'bg-orange-400', '复购': 'bg-green-500', '裂变': 'bg-purple-500', '流失': 'bg-red-400'} %}
+                {% set max_count = by_stage.values()|max if by_stage.values() else 1 %}
+                {% for stage in stages %}
+                {% set count = by_stage.get(stage, 0) %}
+                {% set pct = (count / max_count * 100) if max_count > 0 else 0 %}
+                <div class="flex items-center space-x-4">
+                    <div class="w-16 text-sm font-medium text-gray-600">{{ stage }}</div>
+                    <div class="flex-1 bg-gray-100 rounded-full h-8 overflow-hidden">
+                        <div class="{{ colors[stage] }} h-full rounded-full flex items-center justify-end pr-3 text-white text-sm font-medium transition-all duration-500"
+                             style="width: {{ pct }}%; min-width: {% if count > 0 %}60px{% else %}0{% endif %}">
+                            {% if count > 0 %}{{ count }}{% endif %}
+                        </div>
+                    </div>
+                    <div class="w-20 text-right text-sm text-gray-500">
+                        {% if total > 0 %}{{ (count / total * 100)|round(1) }}%{% else %}0%{% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Repurchase Reminders Widget -->
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold text-gray-800">🔄 复购提醒</h2>
+                <a href="/repurchases" class="text-sm text-hk3-600 hover:underline">查看全部 →</a>
+            </div>
+            {% if overdue_reminders %}
+            <div class="mb-3">
+                <div class="text-sm font-medium text-red-600 mb-2">⚠️ 逾期（{{ overdue_reminders|length }}人）</div>
+                <div class="space-y-2">
+                    {% for r in overdue_reminders %}
+                    <a href="/customers/{{ r.customer_id }}" class="block p-2 rounded-lg bg-red-50 border border-red-100 hover:bg-red-100 transition">
+                        <div class="flex items-center justify-between">
+                            <span class="font-medium text-gray-800 text-sm">{{ r.customer_name }}</span>
+                            <span class="text-xs text-red-600 font-medium">-{{ r.days_left|abs }}天</span>
+                        </div>
+                        <div class="text-xs text-gray-500">{{ r.product }}</div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if upcoming_reminders %}
+            <div>
+                <div class="text-sm font-medium text-amber-600 mb-2">即将复购</div>
+                <div class="space-y-2">
+                    {% for r in upcoming_reminders %}
+                    <a href="/customers/{{ r.customer_id }}" class="block p-2 rounded-lg bg-amber-50 border border-amber-100 hover:bg-amber-100 transition">
+                        <div class="flex items-center justify-between">
+                            <span class="font-medium text-gray-800 text-sm">{{ r.customer_name }}</span>
+                            <span class="text-xs text-amber-600 font-medium">{{ r.days_left }}天</span>
+                        </div>
+                        <div class="text-xs text-gray-500">{{ r.product }}</div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if not overdue_reminders and not upcoming_reminders %}
+            <div class="text-center py-8 text-gray-400">
+                <div class="text-4xl mb-2">✅</div>
+                <div class="text-sm">暂无复购提醒</div>
+                <div class="text-xs mt-2">添加订单后自动计算</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Recent Customers -->
+    <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+        <h2 class="text-lg font-semibold text-gray-800 mb-4">🕐 最近更新</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {% for c in recent_customers %}
+            <a href="/customers/{{ c.id }}" class="block p-4 rounded-lg hover:bg-gray-50 border border-gray-100 transition">
+                <div class="font-medium text-gray-800">{{ c.name }}</div>
+                <div class="text-xs text-gray-500 mt-1 flex items-center space-x-2">
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs 
+                        {% if c.funnel_stage == '成交' or c.funnel_stage == '复购' %}bg-green-100 text-green-700
+                        {% elif c.funnel_stage == '询盘' %}bg-yellow-100 text-yellow-700
+                        {% elif c.funnel_stage == '流失' %}bg-red-100 text-red-700
+                        {% else %}bg-gray-100 text-gray-600{% endif %}">
+                        {{ c.funnel_stage }}
+                    </span>
+                    {% if c.phone_whatsapp %}
+                    <span>{{ c.phone_whatsapp }}</span>
+                    {% endif %}
+                </div>
+            </a>
+            {% else %}
+            <div class="col-span-full text-center py-8 text-gray-400">
+                <div class="text-4xl mb-2">📭</div>
+                <div>暂无客户数据</div>
+                <a href="/customers/new" class="text-hk3-600 hover:underline mt-2 inline-block">添加第一个客户 →</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

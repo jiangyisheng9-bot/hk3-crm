@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name }}{% endblock %}
+{% block content %}
+<div class="space-y-6">
+    <!-- Customer Header -->
+    <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+        <div class="flex items-start justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">{{ customer.name }}</h1>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <span class="inline-block px-3 py-1 rounded-full text-sm font-medium
+                        {% if customer.funnel_stage == '成交' or customer.funnel_stage == '复购' %}bg-green-100 text-green-700
+                        {% elif customer.funnel_stage == '询盘' %}bg-yellow-100 text-yellow-700
+                        {% elif customer.funnel_stage == '流失' %}bg-red-100 text-red-700
+                        {% elif customer.funnel_stage == '裂变' %}bg-purple-100 text-purple-700
+                        {% else %}bg-blue-100 text-blue-700{% endif %}">
+                        🎯 {{ customer.funnel_stage }}
+                    </span>
+                    {% if customer.rfm_segment %}
+                    <span class="inline-block px-3 py-1 rounded-full text-sm font-medium
+                        {% if 'S' in customer.rfm_segment %}bg-amber-100 text-amber-700
+                        {% elif 'A' in customer.rfm_segment %}bg-green-100 text-green-700
+                        {% elif 'B' in customer.rfm_segment %}bg-blue-100 text-blue-700
+                        {% else %}bg-gray-100 text-gray-500{% endif %}">
+                        💎 {{ customer.rfm_segment }}
+                    </span>
+                    {% endif %}
+                    {% if customer.health_concerns %}
+                    <span class="inline-block px-3 py-1 rounded-full text-sm bg-red-50 text-red-600">🏥 {{ customer.health_concerns }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="flex space-x-2">
+                <a href="/customers/{{ customer.id }}/edit" class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition text-sm">✏️ 编辑</a>
+                <a href="/customers/{{ customer.id }}/order" class="px-4 py-2 bg-hk3-600 text-white rounded-lg hover:bg-hk3-700 transition text-sm">+ 订单</a>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
+            <div>
+                <div class="text-gray-500">WhatsApp</div>
+                <div class="font-medium">{{ customer.phone_whatsapp or '-' }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500">电话</div>
+                <div class="font-medium">{{ customer.phone_other or '-' }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500">地址</div>
+                <div class="font-medium">{{ customer.shipping_address or '-' }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500">物流偏好</div>
+                <div class="font-medium">{{ customer.preferred_courier or '-' }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500">来源</div>
+                <div class="font-medium">{{ customer.acquisition_source or '-' }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500">总消费</div>
+                <div class="font-medium">RM {{ "%.0f"|format(customer.ltv or 0) }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500">订单数</div>
+                <div class="font-medium">{{ customer.total_orders or 0 }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500">意向评分</div>
+                <div class="font-medium">{{ customer.intent_score or 50 }}/100</div>
+            </div>
+        </div>
+        {% if customer.notes %}
+        <div class="mt-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+            📝 {{ customer.notes }}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Orders -->
+    <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-800">📦 订单</h2>
+            <a href="/customers/{{ customer.id }}/order" class="text-sm text-hk3-600 hover:underline">+ 新增</a>
+        </div>
+        {% if orders %}
+        <table class="w-full text-sm">
+            <thead class="text-left text-gray-500 border-b">
+                <tr>
+                    <th class="pb-2">日期</th>
+                    <th class="pb-2">产品</th>
+                    <th class="pb-2">金额</th>
+                    <th class="pb-2">状态</th>
+                    <th class="pb-2">快递</th>
+                    <th class="pb-2">追踪号</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for o in orders %}
+                <tr class="hover:bg-gray-50">
+                    <td class="py-2 text-gray-600">{{ o.order_date.strftime('%m-%d') }}</td>
+                    <td class="py-2">{{ o.products or '-' }}</td>
+                    <td class="py-2 font-medium">RM {{ "%.0f"|format(o.total_amount) }}</td>
+                    <td class="py-2">
+                        <span class="px-2 py-0.5 rounded-full text-xs
+                            {% if o.order_status == '已发货' %}bg-blue-100 text-blue-700
+                            {% elif o.order_status == '已签收' %}bg-green-100 text-green-700
+                            {% elif o.order_status == '已取消' %}bg-red-100 text-red-700
+                            {% else %}bg-yellow-100 text-yellow-700{% endif %}">
+                            {{ o.order_status }}
+                        </span>
+                    </td>
+                    <td class="py-2 text-gray-600">{{ o.courier or '-' }}</td>
+                    <td class="py-2 text-gray-400 text-xs">{{ o.tracking_number or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-6 text-gray-400">暂无订单</div>
+        {% endif %}
+    </div>
+
+    <!-- Follow-ups -->
+    <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-800">📋 跟进任务</h2>
+        </div>
+        <form method="POST" action="/customers/{{ customer.id }}/followup" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4 p-4 bg-gray-50 rounded-lg">
+            <input type="text" name="type" placeholder="类型（复购/催单/关怀）" class="px-3 py-2 border rounded-lg text-sm" required>
+            <input type="text" name="content" placeholder="任务内容" class="px-3 py-2 border rounded-lg text-sm" required>
+            <input type="date" name="scheduled_at" class="px-3 py-2 border rounded-lg text-sm">
+            <button type="submit" class="bg-hk3-600 text-white px-4 py-2 rounded-lg hover:bg-hk3-700 text-sm">➕ 创建跟进</button>
+        </form>
+        {% if followups %}
+        {% for f in followups %}
+        <div class="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+            <div>
+                <span class="font-medium text-sm">{{ f.type }}</span>
+                <span class="text-gray-500 text-sm ml-2">{{ f.content }}</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="text-xs text-gray-400">{{ f.scheduled_at.strftime('%m-%d') if f.scheduled_at else '' }}</span>
+                <span class="px-2 py-0.5 rounded-full text-xs
+                    {% if f.status == '待执行' %}bg-yellow-100 text-yellow-700
+                    {% elif f.status == '已执行' %}bg-green-100 text-green-700
+                    {% else %}bg-gray-100 text-gray-500{% endif %}">
+                    {{ f.status }}
+                </span>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="text-center py-4 text-gray-400 text-sm">暂无跟进任务</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

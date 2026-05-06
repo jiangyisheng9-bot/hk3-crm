@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}复购提醒{% endblock %}
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-800">🔄 复购提醒</h1>
+        <div class="flex items-center space-x-2 text-sm">
+            <span class="text-gray-500">显示未来</span>
+            <a href="?days=7" class="px-3 py-1 rounded-lg {% if days_ahead == 7 %}bg-hk3-600 text-white{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">7天</a>
+            <a href="?days=14" class="px-3 py-1 rounded-lg {% if days_ahead == 14 %}bg-hk3-600 text-white{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">14天</a>
+            <a href="?days=30" class="px-3 py-1 rounded-lg {% if days_ahead == 30 %}bg-hk3-600 text-white{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">30天</a>
+            <a href="?days=60" class="px-3 py-1 rounded-lg {% if days_ahead == 60 %}bg-hk3-600 text-white{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">60天</a>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">待提醒总数</div>
+            <div class="text-3xl font-bold text-hk3-700">{{ reminders|length }}</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">⚠️ 逾期复购</div>
+            <div class="text-3xl font-bold text-red-600">{{ overdue|length }}</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div class="text-sm text-gray-500">即将复购</div>
+            <div class="text-3xl font-bold text-amber-600">{{ upcoming|length }}</div>
+        </div>
+    </div>
+
+    <!-- Overdue Reminders -->
+    {% if overdue %}
+    <div class="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
+        <div class="bg-red-50 px-6 py-3 border-b border-red-200">
+            <h2 class="text-lg font-bold text-red-700">⚠️ 逾期复购（{{ overdue|length }}人）</h2>
+        </div>
+        <div class="divide-y divide-gray-100">
+            {% for r in overdue %}
+            <a href="/customers/{{ r.customer_id }}" class="flex items-center justify-between px-6 py-4 hover:bg-red-50 transition">
+                <div class="flex items-center space-x-4">
+                    <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold">
+                        {{ r.customer_name[0] }}
+                    </div>
+                    <div>
+                        <div class="font-medium text-gray-800">{{ r.customer_name }}</div>
+                        <div class="text-sm text-gray-500">{{ r.product }} · {{ r.phone }}</div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm font-bold text-red-600">逾期 {{ r.days_left|abs }} 天</div>
+                    <div class="text-xs text-gray-400">上次购买: {{ r.order_date }}</div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Upcoming Reminders -->
+    {% if upcoming %}
+    <div class="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden">
+        <div class="bg-amber-50 px-6 py-3 border-b border-amber-200">
+            <h2 class="text-lg font-bold text-amber-700">即将复购（{{ upcoming|length }}人）</h2>
+        </div>
+        <div class="divide-y divide-gray-100">
+            {% for r in upcoming %}
+            <a href="/customers/{{ r.customer_id }}" class="flex items-center justify-between px-6 py-4 hover:bg-amber-50 transition">
+                <div class="flex items-center space-x-4">
+                    <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold">
+                        {{ r.customer_name[0] }}
+                    </div>
+                    <div>
+                        <div class="font-medium text-gray-800">{{ r.customer_name }}</div>
+                        <div class="text-sm text-gray-500">{{ r.product }} · {{ r.phone }}</div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm font-bold text-amber-600">{{ r.days_left }} 天后用完</div>
+                    <div class="text-xs text-gray-400">上次购买: {{ r.order_date }}</div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if not overdue and not upcoming %}
+    <div class="text-center py-16 text-gray-400">
+        <div class="text-5xl mb-4">🎉</div>
+        <div class="text-lg">未来 {{ days_ahead }} 天内没有需要复购提醒的客户</div>
+        <div class="mt-4 text-sm">添加订单后，系统会自动计算产品用尽时间</div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
