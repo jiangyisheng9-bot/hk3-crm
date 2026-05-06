@@ -18,7 +18,7 @@
         </thead>
         <tbody class="divide-y divide-gray-100">
             {% for o in orders.items %}
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='/customers/{{ o.customer_id }}'">
+            <tr class="hover:bg-gray-50 group">
                 <td class="px-4 py-3 text-gray-500 text-xs">{{ o.order_id or '-' }}</td>
                 <td class="px-4 py-3 font-medium">{{ o.customer.name if o.customer else '-' }}</td>
                 <td class="px-4 py-3 text-gray-600">{{ o.order_date.strftime('%m-%d %H:%M') if o.order_date else '-' }}</td>
@@ -34,7 +34,15 @@
                     </span>
                 </td>
                 <td class="px-4 py-3 text-gray-600">{{ o.courier or '-' }}</td>
-                <td class="px-4 py-3 text-gray-500 text-xs">{{ o.source or '-' }}</td>
+                <td class="px-4 py-3 text-gray-500 text-xs">
+                    {{ o.source or '-' }}
+                    <div class="inline-flex items-center space-x-1 ml-2 opacity-0 group-hover:opacity-100">
+                        <a href="/orders/{{ o.id }}/edit" class="text-hk3-600 hover:text-hk3-800" title="编辑">✏️</a>
+                        <form method="POST" action="/orders/{{ o.id }}/delete" class="inline" onsubmit="return confirm('确认删除此订单？')">
+                            <button type="submit" class="text-red-500 hover:text-red-700" title="删除">🗑️</button>
+                        </form>
+                    </div>
+                </td>
             </tr>
             {% else %}
             <tr><td colspan="8" class="px-4 py-12 text-center text-gray-400">暂无订单</td></tr>

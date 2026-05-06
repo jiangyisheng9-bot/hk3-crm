@@ -97,7 +97,7 @@
             </thead>
             <tbody class="divide-y divide-gray-100">
                 {% for o in orders %}
-                <tr class="hover:bg-gray-50">
+                <tr class="hover:bg-gray-50 group">
                     <td class="py-2 text-gray-600">{{ o.order_date.strftime('%m-%d') }}</td>
                     <td class="py-2">{{ o.products or '-' }}</td>
                     <td class="py-2 font-medium">RM {{ "%.0f"|format(o.total_amount) }}</td>
@@ -111,7 +111,13 @@
                         </span>
                     </td>
                     <td class="py-2 text-gray-600">{{ o.courier or '-' }}</td>
-                    <td class="py-2 text-gray-400 text-xs">{{ o.tracking_number or '-' }}</td>
+                    <td class="py-2 text-gray-400 text-xs flex items-center space-x-2">
+                        <span>{{ o.tracking_number or '-' }}</span>
+                        <a href="/orders/{{ o.id }}/edit" class="opacity-0 group-hover:opacity-100 text-hk3-600 hover:text-hk3-800 text-xs ml-2">✏️</a>
+                        <form method="POST" action="/orders/{{ o.id }}/delete" class="inline opacity-0 group-hover:opacity-100" onsubmit="return confirm('确认删除此订单？')">
+                            <button type="submit" class="text-red-500 hover:text-red-700 text-xs">🗑️</button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

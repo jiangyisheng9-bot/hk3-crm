@@ -1,75 +1,83 @@
 {% extends "base.html" %}
-{% block title %}添加订单 — {{ customer.name }}{% endblock %}
+{% block title %}{% if order %}编辑订单{% else %}添加订单{% endif %} — {{ customer.name }}{% endblock %}
 {% block content %}
 <div class="max-w-2xl mx-auto">
-    <h1 class="text-2xl font-bold text-gray-800 mb-2">📦 添加订单</h1>
-    <p class="text-gray-500 mb-6">客户：<strong>{{ customer.name }}</strong> | WhatsApp：{{ customer.phone_whatsapp or '-' }}</p>
+    <h1 class="text-2xl font-bold text-gray-800 mb-2">
+        {% if order %}✏️ 编辑订单{% else %}📦 添加订单{% endif %}
+    </h1>
+    <p class="text-gray-500 mb-6">
+        客户：<strong>{{ customer.name }}</strong>
+        {% if order %}| 订单号：{{ order.order_id }}{% endif %}
+        | WhatsApp：{{ customer.phone_whatsapp or '-' }}
+    </p>
     <form method="POST" class="bg-white rounded-xl shadow-sm p-6 border border-gray-100 space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">订单日期</label>
-                <input type="date" name="order_date" value="{{ today }}" class="w-full px-3 py-2 border rounded-lg">
+                <input type="date" name="order_date" 
+                       value="{% if order %}{{ order.order_date.strftime('%Y-%m-%d') if order.order_date else '' }}{% else %}{{ today }}{% endif %}" 
+                       class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
                 <select name="order_status" class="w-full px-3 py-2 border rounded-lg">
                     {% for s in statuses %}
-                    <option value="{{ s }}" {% if s == '待付款' %}selected{% endif %}>{{ s }}</option>
+                    <option value="{{ s }}" {% if order and order.order_status == s %}selected{% elif not order and s == '待付款' %}selected{% endif %}>{{ s }}</option>
                     {% endfor %}
                 </select>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">产品</label>
-                <input type="text" name="products" placeholder="竹盐咖啡x2 / GlucoDNAx1" class="w-full px-3 py-2 border rounded-lg">
+                <input type="text" name="products" value="{{ order.products or '' }}" placeholder="竹盐咖啡x2 / GlucoDNAx1" class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">金额 (RM)</label>
-                <input type="number" step="0.01" name="total_amount" class="w-full px-3 py-2 border rounded-lg">
+                <input type="number" step="0.01" name="total_amount" value="{{ order.total_amount or '' }}" class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">折扣</label>
-                <input type="number" step="0.01" name="discount" value="0" class="w-full px-3 py-2 border rounded-lg">
+                <input type="number" step="0.01" name="discount" value="{{ order.discount or '0' }}" class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">运费</label>
-                <input type="number" step="0.01" name="shipping_fee" value="0" class="w-full px-3 py-2 border rounded-lg">
+                <input type="number" step="0.01" name="shipping_fee" value="{{ order.shipping_fee or '0' }}" class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">付款方式</label>
-                <input type="text" name="payment_method" placeholder="DuitNow / 转账 / COD" class="w-full px-3 py-2 border rounded-lg">
+                <input type="text" name="payment_method" value="{{ order.payment_method or '' }}" placeholder="DuitNow / 转账 / COD" class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">快递公司</label>
-                <input type="text" name="courier" placeholder="JNT / Pos Laju" class="w-full px-3 py-2 border rounded-lg">
+                <input type="text" name="courier" value="{{ order.courier or '' }}" placeholder="JNT / Pos Laju" class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">追踪号</label>
-                <input type="text" name="tracking_number" class="w-full px-3 py-2 border rounded-lg">
+                <input type="text" name="tracking_number" value="{{ order.tracking_number or '' }}" class="w-full px-3 py-2 border rounded-lg">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">来源</label>
                 <select name="source" class="w-full px-3 py-2 border rounded-lg">
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="WooCommerce">WooCommerce</option>
-                    <option value="Lazada">Lazada</option>
-                    <option value="TikTokShop">TikTok Shop</option>
-                    <option value="线下">线下</option>
-                    <option value="转介绍">转介绍</option>
+                    {% set sources = ['WhatsApp', 'WooCommerce', 'Lazada', 'TikTokShop', '线下', '转介绍'] %}
+                    {% for src in sources %}
+                    <option value="{{ src }}" {% if order and order.source == src %}selected{% endif %}>{{ src }}</option>
+                    {% endfor %}
                 </select>
             </div>
         </div>
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">收货地址</label>
-            <textarea name="shipping_address" rows="2" class="w-full px-3 py-2 border rounded-lg">{{ customer.shipping_address or '' }}</textarea>
+            <textarea name="shipping_address" rows="2" class="w-full px-3 py-2 border rounded-lg">{{ order.shipping_address or customer.shipping_address or '' }}</textarea>
         </div>
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
-            <textarea name="notes" rows="2" class="w-full px-3 py-2 border rounded-lg"></textarea>
+            <textarea name="notes" rows="2" class="w-full px-3 py-2 border rounded-lg">{{ order.notes or '' }}</textarea>
         </div>
 
         <div class="flex justify-end space-x-3 pt-4">
             <a href="/customers/{{ customer.id }}" class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">取消</a>
-            <button type="submit" class="bg-hk3-600 text-white px-6 py-2 rounded-lg hover:bg-hk3-700 font-medium">💾 保存订单</button>
+            <button type="submit" class="bg-hk3-600 text-white px-6 py-2 rounded-lg hover:bg-hk3-700 font-medium">
+                {% if order %}💾 更新订单{% else %}💾 保存订单{% endif %}
+            </button>
         </div>
     </form>
 </div>

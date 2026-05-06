@@ -287,6 +287,45 @@ def customer_add_followup(id):
     flash('跟进任务已创建！', 'success')
     return redirect(url_for('customer_detail', id=id))
 
+@app.route('/orders/<int:id>/edit', methods=['GET', 'POST'])
+def order_edit(id):
+    o = Order.query.get_or_404(id)
+    c = Customer.query.get_or_404(o.customer_id)
+    if request.method == 'POST':
+        old_amount = o.total_amount or 0
+        o.order_date = datetime.strptime(request.form.get('order_date'), '%Y-%m-%d') if request.form.get('order_date') else o.order_date
+        o.order_status = request.form.get('order_status', o.order_status)
+        o.total_amount = float(request.form.get('total_amount', 0))
+        o.products = request.form.get('products')
+        o.discount = float(request.form.get('discount', 0))
+        o.shipping_fee = float(request.form.get('shipping_fee', 0))
+        o.payment_method = request.form.get('payment_method')
+        o.courier = request.form.get('courier')
+        o.tracking_number = request.form.get('tracking_number')
+        o.shipping_address = request.form.get('shipping_address')
+        o.notes = request.form.get('notes')
+        o.source = request.form.get('source')
+        # Update customer LTV
+        c.ltv = (c.ltv or 0) - old_amount + (o.total_amount or 0)
+        c.last_order_date = o.order_date
+        db.session.commit()
+        flash('订单已更新！', 'success')
+        return redirect(url_for('customer_detail', id=o.customer_id))
+    products = Product.query.all()
+    return render_template('order_form.html', customer=c, order=o, products=products, statuses=ORDER_STATUSES, today=date.today().isoformat())
+
+@app.route('/orders/<int:id>/delete', methods=['POST'])
+def order_delete(id):
+    o = Order.query.get_or_404(id)
+    c = Customer.query.get_or_404(o.customer_id)
+    cid = o.customer_id
+    c.total_orders = max(0, (c.total_orders or 1) - 1)
+    c.ltv = max(0, (c.ltv or 0) - (o.total_amount or 0))
+    db.session.delete(o)
+    db.session.commit()
+    flash('订单已删除！', 'success')
+    return redirect(url_for('customer_detail', id=cid))
+
 @app.route('/orders')
 def order_list():
     page = request.args.get('page', 1, type=int)
