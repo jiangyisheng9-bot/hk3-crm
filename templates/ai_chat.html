@@ -118,7 +118,7 @@
                     <input id="chat-input" type="text" 
                            placeholder="输入你想问的问题..." 
                            class="flex-1 px-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-hk3-500"
-                           onkeypress="if(event.key==='Enter') sendMessage(this.value)"
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();sendMessage(this.value);}"
                            {% if not has_api_key %}disabled{% endif %}>
                     <button onclick="sendMessage(document.getElementById('chat-input').value)"
                             class="bg-hk3-600 text-white px-4 py-2 rounded-lg hover:bg-hk3-700 text-sm font-medium"
@@ -174,29 +174,30 @@ function addMessage(role, content) {
             if (!section) continue;
             
             const sectionId = 'sec-' + Date.now() + '-' + si + '-' + Math.random().toString(36).substr(2, 3);
-            const isScript = section.match(/(话术|话术|script|建议|方案)\s*\d/i) || 
+            const isScript = section.match(/(话术|script|建议|方案)\s*\d/i) || 
                             section.match(/^\*\*/) ||
                             section.match(/^[1-9][.、]/);
+
+            // Clean text for copying — defined for ALL branches to avoid ReferenceError
+            // Strip header/description lines before actual message content.
+            // Headers look like "话术1：", "第三步：", "简洁版：" — remove them.
+            const cleanText = section
+                .replace(/^.*(话术|第[一二三四五六七八九十\d]步|建议|步骤|方案|时机|版)[：: ].*\n*/gm, '')  // remove header lines
+                .replace(/^\*\*([^*]+)\*\*/gm, '$1')   // unwrap **bold headers** (keep text)
+                .replace(/^> /gm, '')                    // remove > blockquote prefixes
+                .replace(/^[*-] /gm, '')                 // remove bullet points
+                .replace(/^\d+[.、]/gm, '')              // remove numbered prefixes
+                .replace(/^\w+\d+[：:]/gm, '')          // remove "话术1：" type patterns
+                .replace(/^#+\s*/gm, '')                 // remove markdown headers
+                .replace(/\*\*/g, '').replace(/\*/g, '') // remove remaining *
+                .replace(/`/g, '').replace(/~~/g, '')    // remove code/~~
+                .replace(/\n{3,}/g, '\n\n')             // normalize spacing
+                .trim();
+            const encoded = encodeURIComponent(cleanText);
+            const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
             
             if (isScript && sections.length > 1) {
                 // Each script section gets its own card + buttons
-                // Clean text for copying: remove **, >, markdown, and header/description lines
-                const cleanText = section
-                    .replace(/^\*\*([^*]+)\*\*/gm, '')  // remove **bold headers**
-                    .replace(/^> /gm, '')                  // remove > blockquote prefixes
-                    .replace(/^[*-] /gm, '')               // remove bullet points
-                    .replace(/^\d+[.、]/gm, '')           // remove numbered prefixes
-                    .replace(/^#+\s*/gm, '')              // remove markdown headers
-                    .replace(/\*\*/g, '').replace(/\*/g, '')  // remove remaining *
-                    .replace(/`/g, '').replace(/~~/g, '')      // remove code/~~
-                    .replace (/\n{3,}/g, '\n\n')            // normalize spacing
-                    .trim();
-                const plainText = cleanText
-                    .replace(/\n{3,}/g, '\n\n')  // compact multiple newlines
-                    .trim();
-                const encoded = encodeURIComponent(plainText);
-                const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
-                
                 html += `
                     <div class="p-3 my-2 rounded-lg border border-green-200 bg-green-50">
                         <div class="text-sm whitespace-pre-wrap text-gray-800">${escapeHtml(section)}</div>
@@ -221,8 +222,6 @@ function addMessage(role, content) {
                 `;
             } else {
                 // Single section - whole message with full copy
-                const encoded = encodeURIComponent(section);
-                const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
                 html += `
                     <div class="p-3 rounded-lg bg-gray-100 text-gray-800">
                         <div class="text-sm whitespace-pre-wrap">${escapeHtml(section)}</div>
@@ -319,16 +318,22 @@ function sendMessage(text) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         removeTyping();
-        if (data.ok) {
-            addMessage('assistant', data.result);
-            chatHistory.push({role: 'assistant', content: data.result});
-        } else {
-            addMessage('assistant', '❌ ' + (data.error || '请求失败'));
+        try {
+            if (data.ok) {
+                addMessage('assistant', data.result);
+                chatHistory.push({role: 'assistant', content: data.result});
+            } else {
+                addMessage('assistant', '❌ ' + (data.error || '请求失败'));
+            }
+        } catch (e) {
+            console.error('addMessage 崩溃:', e);
+            addMessage('assistant', '❌ 前端渲染错误：' + e.message);
         }
     })
-    .catch(function() {
+    .catch(function(err) {
         removeTyping();
-        addMessage('assistant', '❌ 网络错误，请重试');
+        console.error('fetch 错误:', err);
+        addMessage('assistant', '❌ 网络错误：' + (err && err.message ? err.message : '请重试'));
     });
 }
 </script>
