@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp 配置{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-800">💬 WhatsApp Cloud API 配置</h1>
+        {% if cfg and cfg.is_active %}
+            <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">● 已启用</span>
+        {% else %}
+            <span class="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm">○ 未启用</span>
+        {% endif %}
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+        <form method="POST" class="space-y-5">
+            <input type="hidden" name="action" value="save">
+
+            <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number ID</label>
+                    <input type="text" name="phone_number_id"
+                           value="{{ cfg.phone_number_id or '' }}"
+                           placeholder="123456789012345"
+                           class="w-full px-3 py-2 border rounded-lg font-mono text-sm">
+                    <p class="text-xs text-gray-400 mt-1">在 Meta for Developers → WhatsApp → API Setup 找到</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Business Account ID</label>
+                    <input type="text" name="business_account_id"
+                           value="{{ cfg.business_account_id or '' }}"
+                           placeholder="WABA ID"
+                           class="w-full px-3 py-2 border rounded-lg font-mono text-sm">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Access Token（System User，永不过期）</label>
+                <input type="password" name="access_token"
+                       placeholder="EAAxxxxxxxxxxxxx..."
+                       class="w-full px-3 py-2 border rounded-lg font-mono text-sm"
+                       {% if cfg and cfg.access_token %}value="********"{% endif %}>
+                {% if cfg and cfg.access_token %}
+                <p class="text-xs text-green-600 mt-1">✅ 已配置（{{ masked_token }}）</p>
+                {% else %}
+                <p class="text-xs text-amber-600 mt-1">⚠️ 尚未配置</p>
+                {% endif %}
+                <p class="text-xs text-gray-400 mt-1">建议用 System User 生成永不过期的 token（避免每60天刷新）</p>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Webhook Verify Token（自定义字符串）</label>
+                <input type="text" name="webhook_verify_token"
+                       value="{{ cfg.webhook_verify_token or '' }}"
+                       placeholder="例如: hk3-crm-secret-2026"
+                       class="w-full px-3 py-2 border rounded-lg font-mono text-sm">
+                <p class="text-xs text-gray-400 mt-1">在 Meta 设置 webhook 时需要填写相同的字符串</p>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <input type="checkbox" id="is_active" name="is_active" value="1"
+                       {% if cfg and cfg.is_active %}checked{% endif %}
+                       class="w-4 h-4 text-hk3-600 border-gray-300 rounded">
+                <label for="is_active" class="text-sm text-gray-700">启用 WhatsApp 集成</label>
+            </div>
+
+            <div class="flex justify-between items-center pt-2 border-t">
+                <button type="submit" formaction="{{ url_for('whatsapp_settings') }}"
+                        formmethod="POST"
+                        onclick="document.querySelector('input[name=action]').value='test'"
+                        class="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-medium text-sm">🔌 测试连接</button>
+                <button type="submit"
+                        onclick="document.querySelector('input[name=action]').value='save'"
+                        class="bg-hk3-600 text-white px-6 py-2 rounded-lg hover:bg-hk3-700 font-medium">💾 保存配置</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Webhook URL -->
+    <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+        <h2 class="text-lg font-semibold text-gray-800 mb-3">🔗 Webhook URL</h2>
+        <p class="text-sm text-gray-500 mb-3">在 Meta for Developers → WhatsApp → Configuration → Webhook 填入这个地址。Meta 要求 <b>HTTPS</b>，本地开发请用 ngrok。</p>
+        <div class="flex gap-2">
+            <input type="text" id="webhook_url" value="{{ webhook_url }}" readonly
+                   class="flex-1 px-3 py-2 bg-gray-50 border rounded-lg font-mono text-xs">
+            <button onclick="navigator.clipboard.writeText(document.getElementById('webhook_url').value); this.textContent='✓ 已复制'"
+                    class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm">📋 复制</button>
+        </div>
+        {% if cfg and cfg.display_phone %}
+        <p class="text-xs text-gray-500 mt-3">📞 当前绑定号码：<b>{{ cfg.display_phone }}</b></p>
+        {% endif %}
+    </div>
+
+    <!-- ngrok hint -->
+    <div class="bg-blue-50 rounded-xl p-6 border border-blue-200">
+        <h3 class="font-medium text-blue-800 mb-2">🌐 让 webhook 可被 Meta 访问（ngrok）</h3>
+        <p class="text-sm text-blue-700 mb-2">CRM 跑在 localhost:5001，Meta 无法直接访问。用 ngrok 暴露一个公网 HTTPS URL：</p>
+        <pre class="bg-blue-900 text-blue-100 text-xs p-3 rounded overflow-x-auto"># 安装 ngrok（一次性）
+brew install ngrok/ngrok/ngrok
+
+# 启动隧道（保持运行）
+ngrok http 5001
+
+# 复制 https://xxxx.ngrok-free.app/whatsapp/webhook
+# 填到 Meta Webhook 配置页</pre>
+        <p class="text-xs text-blue-600 mt-2">或者直接跑 <code class="bg-blue-100 px-1 rounded">bash start_with_ngrok.sh</code> 一键启动 CRM + ngrok。</p>
+    </div>
+
+    <!-- Setup steps -->
+    <div class="bg-amber-50 rounded-xl p-6 border border-amber-200">
+        <h3 class="font-medium text-amber-800 mb-2">📋 在 Meta 后台需要做的</h3>
+        <ol class="text-sm text-amber-700 space-y-1 list-decimal pl-5">
+            <li>登录 <a href="https://developers.facebook.com/" target="_blank" class="underline">developers.facebook.com</a> → 创建/选择 App → 添加 WhatsApp 产品</li>
+            <li>API Setup 页面：复制 <b>Phone Number ID</b> 和 <b>WABA ID</b></li>
+            <li>Business Settings → System Users → 创建 System User → 生成永不过期 token（权限 <code>whatsapp_business_messaging</code>、<code>whatsapp_business_management</code>）</li>
+            <li>WhatsApp → Configuration → Webhook：粘贴上面的 URL + 自定义 Verify Token，点击 Verify</li>
+            <li>Subscribe webhook fields：勾选 <b>messages</b></li>
+            <li>回到本页 → 填表 → 测试连接 → 启用</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}

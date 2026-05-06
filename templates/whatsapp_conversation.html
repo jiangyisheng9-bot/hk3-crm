@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name }} — WhatsApp 对话{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-4">
+    <!-- Header -->
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex items-center justify-between">
+        <div>
+            <a href="{{ url_for('customer_detail', id=customer.id) }}" class="text-sm text-gray-500 hover:text-hk3-700">← 返回客户详情</a>
+            <h1 class="text-xl font-bold text-gray-800 mt-1">💬 {{ customer.name }}</h1>
+            <p class="text-sm text-gray-500">📱 {{ customer.phone_whatsapp or '未设置 WhatsApp 号码' }}</p>
+        </div>
+        <div class="text-right text-xs text-gray-500">
+            {% if cfg and cfg.is_active and cfg.access_token %}
+                <span class="px-2 py-1 bg-green-100 text-green-700 rounded-full">● API 已连接</span>
+            {% else %}
+                <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full">⚠️ 未配置 API</span>
+                <div class="mt-1"><a href="{{ url_for('whatsapp_settings') }}" class="text-hk3-600 underline">去配置</a></div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Conversation -->
+    <div id="messages" class="bg-gradient-to-b from-emerald-50 to-emerald-100 rounded-xl p-4 border border-emerald-200 h-[480px] overflow-y-auto space-y-2">
+        {% if not interactions %}
+            <div class="text-center text-gray-500 text-sm py-12">
+                <div class="text-4xl mb-2">💭</div>
+                <p>暂无 WhatsApp 对话记录</p>
+                <p class="text-xs mt-1">客户发来消息或你主动发送后，会显示在这里</p>
+            </div>
+        {% endif %}
+        {% for i in interactions %}
+            {% set is_inbound = (i.direction == '入站') %}
+            <div class="flex {% if is_inbound %}justify-start{% else %}justify-end{% endif %}">
+                <div class="max-w-[75%]">
+                    <div class="px-4 py-2 rounded-2xl shadow-sm
+                                {% if is_inbound %}bg-white text-gray-800 rounded-bl-sm
+                                {% else %}bg-emerald-500 text-white rounded-br-sm{% endif %}">
+                        <div class="text-sm whitespace-pre-wrap break-words">{{ i.whatsapp_content or i.content_summary or '' }}</div>
+                    </div>
+                    <div class="text-[10px] text-gray-500 mt-0.5 {% if is_inbound %}text-left{% else %}text-right{% endif %}">
+                        {{ i.timestamp.strftime('%m-%d %H:%M') if i.timestamp else '' }}
+                        {% if not is_inbound %}· {{ i.intent or '已发送' }}{% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <!-- Reply -->
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+        <form id="reply-form" class="space-y-3">
+            <textarea id="message" rows="3"
+                      placeholder="输入回复内容…（支持中英文，发送后会通过 WhatsApp Cloud API 推送）"
+                      class="w-full px-3 py-2 border rounded-lg text-sm resize-none focus:outline-none focus:border-hk3-500"></textarea>
+            <div class="flex justify-between items-center">
+                <p id="status" class="text-xs text-gray-500"></p>
+                <button type="submit" id="send-btn"
+                        class="bg-emerald-500 text-white px-6 py-2 rounded-lg hover:bg-emerald-600 font-medium text-sm disabled:opacity-50">
+                    📤 发送
+                </button>
+            </div>
+        </form>
+        <p class="text-xs text-amber-600 mt-2">
+            ⚠️ 注意：WhatsApp 业务规则限制，客户超过 24 小时未回复后只能用模板消息发送（自由文本会失败）。
+        </p>
+    </div>
+</div>
+
+<script>
+    // Scroll to bottom on load
+    const msgs = document.getElementById('messages');
+    msgs.scrollTop = msgs.scrollHeight;
+
+    document.getElementById('reply-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const ta = document.getElementById('message');
+        const btn = document.getElementById('send-btn');
+        const status = document.getElementById('status');
+        const msg = ta.value.trim();
+        if (!msg) return;
+        btn.disabled = true;
+        status.textContent = '发送中…';
+        status.className = 'text-xs text-gray-500';
+        try {
+            const r = await fetch('/api/whatsapp/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({customer_id: {{ customer.id }}, message: msg})
+            });
+            const data = await r.json();
+            if (data.ok) {
+                status.textContent = '✅ 已发送（' + (data.wamid || 'OK') + '）';
+                status.className = 'text-xs text-green-600';
+                ta.value = '';
+                setTimeout(() => location.reload(), 700);
+            } else {
+                status.textContent = '❌ ' + (data.error || '发送失败');
+                status.className = 'text-xs text-red-600';
+            }
+        } catch (err) {
+            status.textContent = '❌ 网络错误：' + err.message;
+            status.className = 'text-xs text-red-600';
+        } finally {
+            btn.disabled = false;
+        }
+    });
+</script>
+{% endblock %}

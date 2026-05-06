@@ -167,16 +167,94 @@ function addMessage(role, content) {
         let html = '<div class="max-w-[90%]">';
         
         // Split by --- separators
-        const sections = content.split(/\n---+\n/);
-        
+        let sections = content.split(/\n---+\n/);
+
+        // Secondary split: if a section has NO script-style headers but contains
+        // multiple paragraphs separated by blank lines that each look like an
+        // independent message (e.g. AI returned 3 message variants without ---),
+        // expand those into separate sub-sections.
+        sections = (function expandSections(secs) {
+            const out = [];
+            // Headers/markers that mean "this is a structured script block; do NOT split it"
+            const hasScriptMarker = function(s) {
+                if (/(^|\n)\s*>\s/.test(s)) return true;            // blockquote = WhatsApp body
+                if (/(话术|script|建议|方案)\s*[\d一二三四五六七八九十]/i.test(s)) return true;
+                if (/^\**\s*第[一二三四五六七八九十百\d]+\s*[步个种版条点]\s*[：:]/m.test(s)) return true;
+                if (/^\**\s*[^\s>]{1,15}版\s*[（(]?[^：:]{0,30}[）)]?\s*[：:]/m.test(s)) return true;
+                if (/^#+\s/m.test(s)) return true;                    // markdown heading
+                if (/^\*\*[^*\n]+\*\*\s*[：:]?\s*$/m.test(s)) return true; // bold-only line
+                if (/^[1-9][.、)）]\s*\*\*/m.test(s)) return true;     // 1. **xxx**
+                return false;
+            };
+            // Meta paragraph (analysis/notes/timing) — leave as single block
+            const isMetaPara = function(p) {
+                return /^(分析|总结|说明|目的|背景|时机|备注|建议时机|发送时机|note|summary)/i.test(p.trim());
+            };
+            // Looks like an actual outbound message (greeting / direct address / etc.)
+            const looksLikeMessage = function(p) {
+                const t = p.trim();
+                if (t.length < 20) return false;
+                if (isMetaPara(t)) return false;
+                // Greetings, names, common opening patterns
+                if (/^(Hi|Hello|Hey|您好|你好|嗨|哈[喽啰]|早上好|下午好|晚上好|亲爱的)/i.test(t)) return true;
+                // Starts with a person's name followed by punctuation (e.g. "Choon Bee，...")
+                if (/^[A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\s]{0,20}[，,、~～]/.test(t)) return true;
+                return false;
+            };
+            for (const sec of secs) {
+                const s = sec.trim();
+                if (!s) { out.push(sec); continue; }
+                if (hasScriptMarker(s)) { out.push(sec); continue; }
+                // Try splitting on blank lines (one or more)
+                const paras = s.split(/\n\s*\n+/).map(function(p){return p.trim();}).filter(Boolean);
+                if (paras.length >= 2 && paras.every(looksLikeMessage)) {
+                    // Each paragraph is an independent message variant
+                    for (const p of paras) out.push(p);
+                } else {
+                    out.push(sec);
+                }
+            }
+            return out;
+        })(sections);
+
         for (let si = 0; si < sections.length; si++) {
             const section = sections[si].trim();
             if (!section) continue;
             
             const sectionId = 'sec-' + Date.now() + '-' + si + '-' + Math.random().toString(36).substr(2, 3);
-            const isScript = section.match(/(话术|script|建议|方案)\s*\d/i) || 
-                            section.match(/^\*\*/) ||
-                            section.match(/^[1-9][.、]/);
+            // Robust script-section detection. Covers many AI output styles:
+            //   1. **话术1：标题**  /  话术1：标题  /  话术 1: title
+            //   2. 建议一： / 方案二： / 建议1： (中英数字)
+            //   3. 第一步： / 第3步： / 第二个： / 第三种：
+            //   4. 1. xxx / 1、xxx / 一、xxx / 一. xxx
+            //   5. ^** ... ** (加粗标题开头)
+            //   6. ^### ... (markdown 标题)
+            //   7. 段落含有 `> ...` 块引用 (块引用 = WhatsApp 消息正文)
+            //   8. 多段切分时，任何较长的实质内容段落 (>40 字符) 也应识别为话术
+            const isScript = (function() {
+                // Pattern A: 话术/script/建议/方案 后接数字 or 中文数字
+                if (/(话术|script|建议|方案)\s*[\d一二三四五六七八九十]/i.test(section)) return true;
+                // Pattern B: 加粗或 markdown 标题开头
+                if (/^\*\*/.test(section)) return true;
+                if (/^#+\s/.test(section)) return true;
+                // Pattern C: 第X步 / 第X个 / 第X种 / 第X版
+                if (/^\**\s*第[一二三四五六七八九十百\d]+\s*[步个种版条点]\s*[：:]/.test(section)) return true;
+                // Pattern D: 数字编号 1. / 1、 / 1) / 1）
+                if (/^[1-9][.、)）]/.test(section)) return true;
+                // Pattern E: 中文数字编号 一. / 一、/ 一） / 一)
+                if (/^[一二三四五六七八九十][.、)）]/.test(section)) return true;
+                // Pattern F: 简洁版： / 详细版： / 推荐版：
+                if (/^\**\s*[^\s>]{1,15}版\s*[（(]?[^：:]{0,30}[）)]?\s*[：:]/.test(section)) return true;
+                // Pattern G: 含有 `> ` 块引用行 (= 实际消息内容 → 必为话术)
+                if (/(^|\n)\s*>\s/.test(section)) return true;
+                // Pattern H: 多段切分情况下，长段落 (>40 字符且首行无明显非话术标识) 也算话术
+                if (section.length > 40 &&
+                    !/^(分析|总结|说明|目的|背景|时机|备注|note|summary)/i.test(section.trim())) {
+                    // 只在多段场景下生效（单段已在外层 fallback 处理整条消息）
+                    if (sections.length > 1) return true;
+                }
+                return false;
+            })();
 
             // Clean text for copying — extract ONLY the actual WhatsApp message body.
             // Strategy:
@@ -241,7 +319,18 @@ function addMessage(role, content) {
             const encoded = encodeURIComponent(cleanText);
             const waLink = customerPhone ? 'https://wa.me/' + customerPhone + '?text=' + encoded : '#';
             
-            if (isScript && sections.length > 1) {
+            // Treat sub-split message variants (no script marker but message-like) as scripts too
+            const looksLikeStandaloneMsg = (function() {
+                if (isScript) return false;
+                if (sections.length < 2) return false;
+                if (section.length < 20) return false;
+                if (/^(分析|总结|说明|目的|背景|时机|备注|建议时机|发送时机|note|summary)/i.test(section.trim())) return false;
+                if (/^(Hi|Hello|Hey|您好|你好|嗨|哈[喽啰]|早上好|下午好|晚上好|亲爱的)/i.test(section.trim())) return true;
+                if (/^[A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\s]{0,20}[，,、~～]/.test(section.trim())) return true;
+                return false;
+            })();
+
+            if ((isScript || looksLikeStandaloneMsg) && sections.length > 1) {
                 // Each script section gets its own card + buttons
                 html += `
                     <div class="p-3 my-2 rounded-lg border border-green-200 bg-green-50">
