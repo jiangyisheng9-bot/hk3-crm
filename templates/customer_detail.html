@@ -30,9 +30,11 @@
                     {% endif %}
                 </div>
             </div>
-            <div class="flex space-x-2">
+            <div class="flex flex-wrap gap-2">
                 <a href="/customers/{{ customer.id }}/edit" class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition text-sm">✏️ 编辑</a>
                 <a href="/customers/{{ customer.id }}/order" class="px-4 py-2 bg-hk3-600 text-white rounded-lg hover:bg-hk3-700 transition text-sm">+ 订单</a>
+                <a href="/customers/{{ customer.id }}/whatsapp-upload" class="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition text-sm">📤 上传WA</a>
+                <a href="/customers/{{ customer.id }}/ai" class="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition text-sm">🤖 AI助手</a>
             </div>
         </div>
 

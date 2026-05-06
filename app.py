@@ -106,6 +106,17 @@ class Interaction(db.Model):
     follow_up_required = db.Column(db.Boolean, default=False)
     follow_up_date = db.Column(db.DateTime)
     follow_up_notes = db.Column(db.Text)
+    whatsapp_content = db.Column(db.Text)  # 上传的 WhatsApp 聊天记录
+    ai_analysis = db.Column(db.Text)  # AI 分析结果
+
+
+class Setting(db.Model):
+    __tablename__ = 'settings'
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), unique=True, nullable=False)
+    value = db.Column(db.Text)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 class FollowUp(db.Model):
     __tablename__ = 'followups'
@@ -547,6 +558,204 @@ def index():
                            overdue_count=overdue_count,
                            upcoming_reminders=upcoming_reminders,
                            overdue_reminders=overdue_reminders)
+
+# ─── DeepSeek AI Integration ─────────────────────────────────────
+
+def get_deepseek_api_key():
+    """从数据库获取 DeepSeek API key"""
+    s = Setting.query.filter_by(key='deepseek_api_key').first()
+    return s.value if s else ''
+
+def call_deepseek(prompt, system_prompt='你是HK3 CRM的AI销售助手，擅长分析客户情况并生成跟进建议。请用中文回答。'):
+    """调用 DeepSeek API"""
+    api_key = get_deepseek_api_key()
+    if not api_key:
+        return None, '请先在设置页面配置 DeepSeek API Key'
+    import urllib.request
+    url = 'https://api.deepseek.com/v1/chat/completions'
+    payload = json.dumps({
+        'model': 'deepseek-chat',
+        'messages': [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': prompt}
+        ],
+        'temperature': 0.7,
+        'max_tokens': 2000
+    }).encode('utf-8')
+    req = urllib.request.Request(url, data=payload,
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
+        method='POST')
+    try:
+        resp = urllib.request.urlopen(req, timeout=30)
+        result = json.loads(resp.read())
+        content = result['choices'][0]['message']['content']
+        return content, None
+    except Exception as e:
+        return None, str(e)
+
+@app.route('/settings', methods=['GET', 'POST'])
+def settings_page():
+    if request.method == 'POST':
+        key = request.form.get('deepseek_api_key', '').strip()
+        s = Setting.query.filter_by(key='deepseek_api_key').first()
+        if s:
+            s.value = key
+        else:
+            s = Setting(key='deepseek_api_key', value=key)
+            db.session.add(s)
+        db.session.commit()
+        flash('API Key 已保存！', 'success')
+        return redirect(url_for('settings_page'))
+    current_key = get_deepseek_api_key()
+    masked = current_key[:8] + '...' + current_key[-4:] if current_key and len(current_key) > 15 else ''
+    return render_template('settings.html', has_key=bool(current_key), masked_key=masked)
+
+@app.route('/api/ai/analyze/<int:customer_id>', methods=['POST'])
+def api_ai_analyze(customer_id):
+    """AI分析客户并生成跟进建议"""
+    c = Customer.query.get_or_404(customer_id)
+    data = request.get_json() or {}
+    user_message = data.get('message', '')
+    whatsapp_text = data.get('whatsapp_content', '')
+    
+    # 构建客户信息
+    orders = Order.query.filter_by(customer_id=customer_id).order_by(Order.order_date.desc()).limit(5).all()
+    order_info = '\n'.join([f"  - {o.order_date.strftime('%Y-%m-%d')}: {o.products or '?'} (RM{o.total_amount or 0}) [{o.order_status}]" for o in orders]) or '  无订单记录'
+    followups = FollowUp.query.filter_by(customer_id=customer_id).order_by(FollowUp.scheduled_at.desc()).limit(3).all()
+    followup_info = '\n'.join([f"  - {f.type}: {f.content or ''} ({f.status})" for f in followups]) or '  无跟进记录'
+    
+    prompt = f"""客户信息：
+- 姓名：{c.name}
+- 电话：{c.phone_whatsapp or '无'}
+- 漏斗阶段：{c.funnel_stage}
+- RFM等级：{c.rfm_segment}
+- 总订单：{c.total_orders or 0}
+- 上次购买：{c.last_order_date}
+- 累计消费：RM{c.ltv or 0}
+- 健康问题：{c.health_concerns or '无'}
+- 备注：{c.notes or '无'}
+
+最近订单：
+{order_info}
+
+跟进记录：
+{followup_info}
+"""
+    if whatsapp_text:
+        prompt += f'\n客户WhatsApp聊天记录：\n{whatsapp_text[:3000]}\n'
+    if user_message:
+        prompt += f'\n用户的问题/要求：\n{user_message}\n'
+    else:
+        prompt += '\n请分析这位客户的情况，给出跟进建议：1）客户目前的状态 2）建议的跟进策略 3）建议的话术/信息 4）适合的优惠或产品推荐。'
+    
+    result, err = call_deepseek(prompt)
+    if err:
+        return jsonify({'ok': False, 'error': err})
+    return jsonify({'ok': True, 'result': result})
+
+@app.route('/api/ai/chat/<int:customer_id>', methods=['POST'])
+def api_ai_chat(customer_id):
+    """AI聊天接口（DeepSeek）"""
+    c = Customer.query.get_or_404(customer_id)
+    data = request.get_json() or {}
+    user_message = data.get('message', '')
+    history = data.get('history', [])
+    
+    if not user_message:
+        return jsonify({'ok': False, 'error': '请输入消息'})
+    
+    # 构建客户上下文
+    orders = Order.query.filter_by(customer_id=customer_id).order_by(Order.order_date.desc()).limit(5).all()
+    order_info = '\n'.join([f"  - {o.order_date.strftime('%Y-%m-%d')}: {o.products or '?'} (RM{o.total_amount or 0})" for o in orders]) or '无'
+    interactions = Interaction.query.filter_by(customer_id=customer_id).order_by(Interaction.timestamp.desc()).limit(5).all()
+    chat_info = '\n'.join([f"  - [{i.channel}] {i.content_summary or ''}" for i in interactions]) or '无'
+    
+    system_prompt = f"""你是HK3 CRM的AI销售助手，专门帮助分析客户和生成跟进方案。
+当前正在查看的客户信息：
+- 姓名：{c.name}
+- 电话：{c.phone_whatsapp or '无'}
+- 漏斗阶段：{c.funnel_stage}
+- RFM：{c.rfm_segment}
+- 总订单：{c.total_orders or 0}
+- 上次购买：{c.last_order_date}
+- LTV：RM{c.ltv or 0}
+- 健康问题：{c.health_concerns or '无'}
+- 备注：{c.notes or '无'}
+
+最近订单：
+{order_info}
+
+互动记录：
+{chat_info}
+
+你正在帮销售员分析与这个客户的沟通策略。请用中文回答，简短实用。"""
+    
+    messages = [{'role': 'system', 'content': system_prompt}]
+    for h in history[-10:]:
+        messages.append({'role': h.get('role', 'user'), 'content': h.get('content', '')})
+    messages.append({'role': 'user', 'content': user_message})
+    
+    import urllib.request
+    api_key = get_deepseek_api_key()
+    if not api_key:
+        return jsonify({'ok': False, 'error': '请先配置 DeepSeek API Key'})
+    
+    url = 'https://api.deepseek.com/v1/chat/completions'
+    payload = json.dumps({
+        'model': 'deepseek-chat',
+        'messages': messages,
+        'temperature': 0.7,
+        'max_tokens': 2000
+    }).encode('utf-8')
+    req = urllib.request.Request(url, data=payload,
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
+        method='POST')
+    try:
+        resp = urllib.request.urlopen(req, timeout=30)
+        result = json.loads(resp.read())
+        content = result['choices'][0]['message']['content']
+        return jsonify({'ok': True, 'result': content})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+@app.route('/customers/<int:id>/ai')
+def customer_ai_chat(id):
+    c = Customer.query.get_or_404(id)
+    orders = Order.query.filter_by(customer_id=id).order_by(Order.order_date.desc()).all()
+    interactions = Interaction.query.filter_by(customer_id=id).order_by(Interaction.timestamp.desc()).limit(50).all()
+    followups = FollowUp.query.filter_by(customer_id=id).order_by(FollowUp.scheduled_at.desc()).all()
+    has_api_key = bool(get_deepseek_api_key())
+    return render_template('ai_chat.html', customer=c, orders=orders,
+                           interactions=interactions, followups=followups, has_api_key=has_api_key)
+
+@app.route('/customers/<int:id>/whatsapp-upload', methods=['GET', 'POST'])
+def customer_whatsapp_upload(id):
+    c = Customer.query.get_or_404(id)
+    if request.method == 'POST':
+        content = request.form.get('whatsapp_content', '').strip()
+        if content:
+            # Store as interaction
+            i = Interaction(
+                interaction_id=f'WA-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}-{id}',
+                customer_id=id,
+                channel='WhatsApp Chat',
+                direction='双方',
+                content_summary=f'上传的聊天记录（{len(content)}字）',
+                whatsapp_content=content,
+                intent='客户跟进',
+                handled_by='用户上传'
+            )
+            db.session.add(i)
+            c.total_interactions = (c.total_interactions or 0) + 1
+            c.last_contact_date = datetime.utcnow()
+            c.last_contact_channel = 'WhatsApp'
+            db.session.commit()
+            flash('WhatsApp 聊天记录已上传！', 'success')
+        else:
+            flash('请粘贴聊天内容', 'warning')
+        return redirect(url_for('customer_detail', id=id))
+    return render_template('whatsapp_upload.html', customer=c)
+
 
 # ─── Init DB ─────────────────────────────────────────────────────
 
