@@ -142,31 +142,30 @@
         </form>
 
         <!-- 已上传的聊天记录列表 -->
-        {% set ns = namespace(has_upload=false) %}
-        {% for i in interactions %}{% if i.uploaded_chat %}{% set ns.has_upload = true %}{% endif %}{% endfor %}
-        {% if ns.has_upload %}
         <div class="mt-4 space-y-2 border-t pt-4">
             <h4 class="text-sm font-medium text-gray-600">📂 已上传的聊天记录</h4>
-            {% for i in interactions %}{% if i.uploaded_chat %}
-            <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-100">
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-medium text-green-800">✅ 聊天记录</span>
-                        <span class="text-xs text-gray-500">{{ i.timestamp.strftime('%Y-%m-%d %H:%M') }}</span>
-                    </div>
-                    <p class="text-xs text-gray-500 mt-1 truncate">{{ i.content_summary or '' }}</p>
-                </div>
-                <form method="POST" action="/customers/{{ customer.id }}/delete-chat/{{ i.id }}" onsubmit="return confirm('确定删除此聊天记录？')" class="ml-2">
-                    <button type="submit" class="px-3 py-1.5 text-xs bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition">
-                        🗑️ 删除
-                    </button>
-                </form>
-            </div>
-            {% endif %}{% endfor %}
+            {% set chat_items = interactions | selectattr('uploaded_chat') | list %}
+            {% if chat_items | length > 0 %}
+              {% for i in chat_items %}
+              <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-100">
+                  <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                          <span class="text-sm font-medium text-green-800">✅ 聊天记录</span>
+                          <span class="text-xs text-gray-500">{{ i.timestamp.strftime('%Y-%m-%d %H:%M') }}</span>
+                      </div>
+                      <p class="text-xs text-gray-500 mt-1 truncate">{{ i.content_summary or '' }}</p>
+                  </div>
+                  <form method="POST" action="/customers/{{ customer.id }}/delete-chat/{{ i.id }}" onsubmit="return confirm('确定删除此聊天记录？')" class="ml-2">
+                      <button type="submit" class="px-3 py-1.5 text-xs bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition">
+                          🗑️ 删除
+                      </button>
+                  </form>
+              </div>
+              {% endfor %}
+            {% else %}
+            <div class="text-center py-4 text-gray-400 text-sm">暂无上传记录</div>
+            {% endif %}
         </div>
-        {% else %}
-        <div class="mt-4 text-center py-4 text-gray-400 text-sm border-t">暂无上传记录</div>
-        {% endif %}
     </div>
 
     <!-- Follow-ups -->
