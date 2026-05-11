@@ -836,6 +836,18 @@ def customer_upload_chat(id):
     flash('✅ 聊天记录已上传！AI 分析时会参考这些内容。', 'success')
     return redirect(url_for('customer_detail', id=id))
 
+@app.route('/customers/<int:id>/delete-chat/<int:interaction_id>', methods=['POST'])
+def customer_delete_chat(id, interaction_id):
+    """删除已上传的聊天记录"""
+    i = Interaction.query.get_or_404(interaction_id)
+    if i.customer_id != id:
+        flash('操作无效', 'error')
+        return redirect(url_for('customer_detail', id=id))
+    db.session.delete(i)
+    db.session.commit()
+    flash('🗑️ 聊天记录已删除', 'success')
+    return redirect(url_for('customer_detail', id=id))
+
 # ─── Schema Migration ────────────────────────────────────────
 SCHEMA_VERSION = 2
 
