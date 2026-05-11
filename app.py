@@ -790,12 +790,23 @@ def customer_upload_chat(id):
     content = ''
     filename = ''
 
-    # 方式1：上传 .txt 文件
+    # 方式1：上传文件（.txt 或 WhatsApp 导出的 .zip）
     if 'file' in request.files:
         f = request.files['file']
         if f.filename:
             filename = f.filename
-            content = f.read().decode('utf-8', errors='replace')
+            raw = f.read()
+            if filename.lower().endswith('.zip'):
+                # WhatsApp 导出格式：解压找 _chat.txt
+                import zipfile, io
+                with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                    chat_files = [n for n in z.namelist() if n.endswith('_chat.txt')]
+                    if chat_files:
+                        content = z.read(chat_files[0]).decode('utf-8', errors='replace')
+                    else:
+                        content = '⚠️ ZIP 文件中未找到 _chat.txt'
+            else:
+                content = raw.decode('utf-8', errors='replace')
 
     # 方式2：直接粘贴文本
     if not content:
