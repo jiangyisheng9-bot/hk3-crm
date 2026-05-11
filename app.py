@@ -7,6 +7,7 @@ from datetime import datetime, date, timedelta
 from dateutil import relativedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 
 app = Flask(__name__)
 app.secret_key = 'hk3-crm-secret-key-change-in-production'
@@ -725,8 +726,49 @@ def customer_ai_chat(id):
                            interactions=interactions, followups=followups, has_api_key=has_api_key)
 
 @app.route('/customers/<int:id>/whatsapp-upload', methods=['GET', 'POST'])
+# ─── Schema Migration ────────────────────────────────────────
+SCHEMA_VERSION = 1
+
+def get_schema_version():
+    """Return current schema version from DB"""
+    s = Setting.query.filter_by(key='schema_version').first()
+    return int(s.value) if s else 0
+
+def set_schema_version(ver):
+    s = Setting.query.filter_by(key='schema_version').first()
+    if s:
+        s.value = str(ver)
+    else:
+        s = Setting(key='schema_version', value=str(ver))
+        db.session.add(s)
+    db.session.commit()
+
+def run_migrations():
+    """Run pending migrations. Add new migration functions here as we increment SCHEMA_VERSION."""
+    current = get_schema_version()
+    target = SCHEMA_VERSION
+
+    if current >= target:
+        return
+
+    print(f'🔄 数据库迁移: v{current} → v{target}')
+
+    # ---- Add new migrations below ----
+    # Example:
+    # if current < 2:
+    #     with db.engine.connect() as conn:
+    #         conn.execute(text('ALTER TABLE customers ADD COLUMN new_field TEXT'))
+    #     print('  ✅ v2: customers.new_field')
+    #     current = 2
+
+    # When version X released, agent pulls code, migration auto-runs, data preserved
+
+    set_schema_version(target)
+    print(f'✅ 数据库已更新至 v{target}')
+
 def init_db():
     db.create_all()
+    run_migrations()
     if Product.query.count() == 0:
         products = [
             Product(product_id='P001', product_name_en='Bamboo Salt Coffee (Sugar-Free)', product_name_cn='竹盐咖啡（无糖版）', category='咖啡/控糖', unit_price=45.0, days_per_unit=20, reminder_days_before=20),
