@@ -614,6 +614,16 @@ def settings_page():
 def system_update():
     import subprocess
     result = None; error = None; git_log = []
+
+    # 获取当前版本（git commit hash）
+    current_version = 'local'
+    try:
+        v = subprocess.run(['git', 'log', '--oneline', '-1'], capture_output=True, text=True, timeout=5, cwd=basedir)
+        if v.returncode == 0 and v.stdout.strip():
+            current_version = v.stdout.strip()
+    except:
+        pass
+
     if request.method == 'POST':
         action = request.form.get('action')
         if action == 'check':
@@ -648,7 +658,8 @@ def system_update():
                 return '服务器正在重启... 请稍后刷新页面', 200
             except Exception as e:
                 error = f'重启失败: {e}\n请手动重启: python3 app.py'
-    return render_template('system.html', result=result, error=error, git_log=git_log)
+    return render_template('system.html', result=result, error=error, git_log=git_log, current_version=current_version)
+
 @app.route('/api/ai/analyze/<int:customer_id>', methods=['POST'])
 def api_ai_analyze(customer_id):
     """AI分析客户并生成跟进建议"""
