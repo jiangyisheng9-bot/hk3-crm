@@ -108,6 +108,7 @@ class Interaction(db.Model):
     follow_up_date = db.Column(db.DateTime)
     follow_up_notes = db.Column(db.Text)
     ai_analysis = db.Column(db.Text)  # AI 分析结果
+    uploaded_chat = db.Column(db.Text)  # 上传的聊天记录（用于AI分析）
 
 
 class Setting(db.Model):
@@ -679,6 +680,17 @@ def api_ai_analyze(customer_id):
 """
     if whatsapp_text:
         prompt += f'\n客户聊天记录：\n{whatsapp_text[:3000]}\n'
+    else:
+        # 自动从最近互动中找上传的聊天记录
+        chats = Interaction.query.filter(
+            Interaction.customer_id == customer_id,
+            Interaction.uploaded_chat.isnot(None),
+            Interaction.uploaded_chat != ''
+        ).order_by(Interaction.timestamp.desc()).limit(3).all()
+        if chats:
+            prompt += '\n客户聊天记录（上次上传）：\n'
+            for ch in chats:
+                prompt += f'{ch.uploaded_chat[:2000]}\n---\n'
     if user_message:
         prompt += f'\n用户的问题/要求：\n{user_message}\n'
     else:
@@ -705,6 +717,12 @@ def api_ai_chat(customer_id):
     order_info = '\n'.join([f"  - {o.order_date.strftime('%Y-%m-%d')}: {o.products or '?'} (RM{o.total_amount or 0})" for o in orders]) or '无'
     interactions = Interaction.query.filter_by(customer_id=customer_id).order_by(Interaction.timestamp.desc()).limit(5).all()
     chat_info = '\n'.join([f"  - [{i.channel}] {i.content_summary or ''}" for i in interactions]) or '无'
+    # Also get uploaded chat records
+    uploaded = Interaction.query.filter(
+        Interaction.customer_id == customer_id,
+        Interaction.uploaded_chat.isnot(None),
+        Interaction.uploaded_chat != ''
+    ).order_by(Interaction.timestamp.desc()).first()
     
     system_prompt = f"""你是HK3 CRM的AI销售助手，专门帮助分析客户和生成跟进方案。
 当前正在查看的客户信息：
@@ -724,6 +742,8 @@ def api_ai_chat(customer_id):
 {chat_info}
 
 你正在帮销售员分析与这个客户的沟通策略。请用中文回答，简短实用。"""
+    if uploaded:
+        system_prompt += f'\n\n客户上传的聊天记录：\n{uploaded.uploaded_chat[:3000]}'
     
     messages = [{'role': 'system', 'content': system_prompt}]
     for h in history[-10:]:
@@ -763,8 +783,49 @@ def customer_ai_chat(id):
     return render_template('ai_chat.html', customer=c, orders=orders,
                            interactions=interactions, followups=followups, has_api_key=has_api_key)
 
+@app.route('/customers/<int:id>/upload-chat', methods=['POST'])
+def customer_upload_chat(id):
+    """上传聊天记录文件，存入 Interaction"""
+    c = Customer.query.get_or_404(id)
+    content = ''
+    filename = ''
+
+    # 方式1：上传 .txt 文件
+    if 'file' in request.files:
+        f = request.files['file']
+        if f.filename:
+            filename = f.filename
+            content = f.read().decode('utf-8', errors='replace')
+
+    # 方式2：直接粘贴文本
+    if not content:
+        content = request.form.get('chat_content', '').strip()
+
+    if not content:
+        flash('请上传文件或粘贴聊天内容', 'warning')
+        return redirect(url_for('customer_ai_chat', id=id))
+
+    summary = content[:150] + '...' if len(content) > 150 else content
+
+    interaction = Interaction(
+        interaction_id=generate_id('CHAT'),
+        customer_id=id,
+        channel='聊天记录',
+        direction='inbound',
+        content_summary=f'📄 {filename or "粘贴文本"}: {summary}',
+        uploaded_chat=content,
+    )
+    db.session.add(interaction)
+    c.last_contact_channel = '上传聊天'
+    c.last_contact_date = datetime.utcnow()
+    c.total_interactions = (c.total_interactions or 0) + 1
+    db.session.commit()
+
+    flash('✅ 聊天记录已上传！AI 分析时会参考这些内容。', 'success')
+    return redirect(url_for('customer_ai_chat', id=id))
+
 # ─── Schema Migration ────────────────────────────────────────
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 def get_schema_version():
     """Return current schema version from DB"""
@@ -791,12 +852,10 @@ def run_migrations():
     print(f'🔄 数据库迁移: v{current} → v{target}')
 
     # ---- Add new migrations below ----
-    # Example:
-    # if current < 2:
-    #     with db.engine.connect() as conn:
-    #         conn.execute(text('ALTER TABLE customers ADD COLUMN new_field TEXT'))
-    #     print('  ✅ v2: customers.new_field')
-    #     current = 2
+    if current < 2:
+        with db.engine.connect() as conn:
+            conn.execute(text('ALTER TABLE interactions ADD COLUMN uploaded_chat TEXT'))
+        print('  ✅ v2: interactions.uploaded_chat')
 
     # When version X released, agent pulls code, migration auto-runs, data preserved
 
