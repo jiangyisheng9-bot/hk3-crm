@@ -649,6 +649,7 @@ def system_update():
             except Exception as e:
                 error = f'重启失败: {e}\n请手动重启: python3 app.py'
     return render_template('system.html', result=result, error=error, git_log=git_log)
+@app.route('/api/ai/analyze/<int:customer_id>', methods=['POST'])
 def api_ai_analyze(customer_id):
     """AI分析客户并生成跟进建议"""
     c = Customer.query.get_or_404(customer_id)
@@ -690,7 +691,7 @@ def api_ai_analyze(customer_id):
         if chats:
             prompt += '\n客户聊天记录（上次上传）：\n'
             for ch in chats:
-                prompt += f'{ch.uploaded_chat[:2000]}\n---\n'
+                prompt += f'{(ch.uploaded_chat or "")[:2000]}\n---\n'
     if user_message:
         prompt += f'\n用户的问题/要求：\n{user_message}\n'
     else:
@@ -743,7 +744,7 @@ def api_ai_chat(customer_id):
 
 你正在帮销售员分析与这个客户的沟通策略。请用中文回答，简短实用。"""
     if uploaded:
-        system_prompt += f'\n\n客户上传的聊天记录：\n{uploaded.uploaded_chat[:3000]}'
+        system_prompt += f'\n\n客户上传的聊天记录：\n{(uploaded.uploaded_chat or "")[:3000]}'
     
     messages = [{'role': 'system', 'content': system_prompt}]
     for h in history[-10:]:
