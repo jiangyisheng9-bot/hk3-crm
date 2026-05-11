@@ -31,7 +31,6 @@
                     <th class="px-4 py-3">客户</th>
                     <th class="px-4 py-3">WhatsApp</th>
                     <th class="px-4 py-3">漏斗阶段</th>
-                    <th class="px-4 py-3">RFM</th>
                     <th class="px-4 py-3">总消费</th>
                     <th class="px-4 py-3">健康问题</th>
                     <th class="px-4 py-3">物流偏好</th>
@@ -51,15 +50,6 @@
                             {% elif c.funnel_stage == '裂变' %}bg-purple-100 text-purple-700
                             {% else %}bg-blue-100 text-blue-700{% endif %}">
                             {{ c.funnel_stage }}
-                        </span>
-                    </td>
-                    <td class="px-4 py-3">
-                        <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
-                            {% if c.rfm_segment and 'S' in c.rfm_segment %}bg-amber-100 text-amber-700
-                            {% elif c.rfm_segment and 'A' in c.rfm_segment %}bg-green-100 text-green-700
-                            {% elif c.rfm_segment and 'B' in c.rfm_segment %}bg-blue-100 text-blue-700
-                            {% else %}bg-gray-100 text-gray-500{% endif %}">
-                            {{ c.rfm_segment or '-' }}
                         </span>
                     </td>
                     <td class="px-4 py-3 text-gray-600">{% if c.ltv %}RM {{ "%.0f"|format(c.ltv) }}{% else %}-{% endif %}</td>

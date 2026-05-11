@@ -2,17 +2,11 @@
 HK3 CRM — Web Application
 Sales Funnel CRM for HK3 Marketing Sdn Bhd
 """
-import os, sys, uuid, json, re, threading, time
+import os, sys, uuid, json, re
 from datetime import datetime, date, timedelta
 from dateutil import relativedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
-
-try:
-    import whatsapp_web as wa_web
-except Exception as _e:
-    wa_web = None
-    print(f'[warn] whatsapp_web module not available: {_e}')
 
 app = Flask(__name__)
 app.secret_key = 'hk3-crm-secret-key-change-in-production'
@@ -43,7 +37,6 @@ class Customer(db.Model):
     language_preference = db.Column(db.String(20), default='中文')
     funnel_stage = db.Column(db.String(20), default='认知')
     stage_updated_at = db.Column(db.DateTime)
-    rfm_segment = db.Column(db.String(20), default='C')
     ltv = db.Column(db.Float, default=0)
     total_orders = db.Column(db.Integer, default=0)
     last_order_date = db.Column(db.Date)
@@ -113,7 +106,6 @@ class Interaction(db.Model):
     follow_up_required = db.Column(db.Boolean, default=False)
     follow_up_date = db.Column(db.DateTime)
     follow_up_notes = db.Column(db.Text)
-    whatsapp_content = db.Column(db.Text)  # 上传的 WhatsApp 聊天记录
     ai_analysis = db.Column(db.Text)  # AI 分析结果
 
 
@@ -122,19 +114,6 @@ class Setting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(100), unique=True, nullable=False)
     value = db.Column(db.Text)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class WhatsAppConfig(db.Model):
-    __tablename__ = 'whatsapp_config'
-    id = db.Column(db.Integer, primary_key=True)
-    phone_number_id = db.Column(db.String(50))
-    access_token = db.Column(db.Text)
-    webhook_verify_token = db.Column(db.String(100))
-    business_account_id = db.Column(db.String(50))
-    display_phone = db.Column(db.String(30))
-    is_active = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -172,7 +151,6 @@ def generate_id(prefix):
     return f'{prefix}-{today}-{last:03d}'
 
 FUNNEL_STAGES = ['认知', '兴趣', '询盘', '成交', '复购', '裂变', '流失']
-RFM_SEGMENTS = ['S（高价值）', 'A（普通老客）', 'B（新客）', 'C（沉睡）']
 ORDER_STATUSES = ['待付款', '已付款', '已发货', '已签收', '已取消', '退款']
 
 # ─── Routes ──────────────────────────────────────────────────────
@@ -209,7 +187,6 @@ def customer_new():
             location_city=request.form.get('location_city'),
             shipping_address=request.form.get('shipping_address'),
             funnel_stage=request.form.get('funnel_stage', '认知'),
-            rfm_segment=request.form.get('rfm_segment', 'B'),
             health_concerns=request.form.get('health_concerns'),
             medication_taking=request.form.get('medication_taking'),
             diabetes_type=request.form.get('diabetes_type'),
@@ -227,7 +204,7 @@ def customer_new():
         db.session.commit()
         flash('客户已添加！', 'success')
         return redirect(url_for('customer_detail', id=c.id))
-    return render_template('customer_form.html', customer=None, stages=FUNNEL_STAGES, rfm_segments=RFM_SEGMENTS)
+    return render_template('customer_form.html', customer=None, stages=FUNNEL_STAGES)
 
 @app.route('/customers/<int:id>')
 def customer_detail(id):
@@ -252,7 +229,6 @@ def customer_edit(id):
         c.location_city = request.form.get('location_city')
         c.shipping_address = request.form.get('shipping_address')
         c.funnel_stage = request.form.get('funnel_stage')
-        c.rfm_segment = request.form.get('rfm_segment')
         c.health_concerns = request.form.get('health_concerns')
         c.medication_taking = request.form.get('medication_taking')
         c.diabetes_type = request.form.get('diabetes_type')
@@ -265,7 +241,7 @@ def customer_edit(id):
         db.session.commit()
         flash('客户信息已更新！', 'success')
         return redirect(url_for('customer_detail', id=c.id))
-    return render_template('customer_form.html', customer=c, stages=FUNNEL_STAGES, rfm_segments=RFM_SEGMENTS)
+    return render_template('customer_form.html', customer=c, stages=FUNNEL_STAGES)
 
 @app.route('/customers/<int:id>/order', methods=['GET', 'POST'])
 def customer_add_order(id):
@@ -390,10 +366,6 @@ def api_funnel_data():
     for s in stages:
         counts.append(Customer.query.filter_by(funnel_stage=s).count())
     return jsonify({'stages': stages, 'counts': counts})
-
-@app.route('/rfm-guide')
-def rfm_guide():
-    return render_template('rfm_guide.html')
 
 @app.route('/api/quick_stats')
 def api_quick_stats():
@@ -654,7 +626,6 @@ def api_ai_analyze(customer_id):
 - 姓名：{c.name}
 - 电话：{c.phone_whatsapp or '无'}
 - 漏斗阶段：{c.funnel_stage}
-- RFM等级：{c.rfm_segment}
 - 总订单：{c.total_orders or 0}
 - 上次购买：{c.last_order_date}
 - 累计消费：RM{c.ltv or 0}
@@ -668,7 +639,7 @@ def api_ai_analyze(customer_id):
 {followup_info}
 """
     if whatsapp_text:
-        prompt += f'\n客户WhatsApp聊天记录：\n{whatsapp_text[:3000]}\n'
+        prompt += f'\n客户聊天记录：\n{whatsapp_text[:3000]}\n'
     if user_message:
         prompt += f'\n用户的问题/要求：\n{user_message}\n'
     else:
@@ -701,7 +672,6 @@ def api_ai_chat(customer_id):
 - 姓名：{c.name}
 - 电话：{c.phone_whatsapp or '无'}
 - 漏斗阶段：{c.funnel_stage}
-- RFM：{c.rfm_segment}
 - 总订单：{c.total_orders or 0}
 - 上次购买：{c.last_order_date}
 - LTV：RM{c.ltv or 0}
@@ -755,593 +725,6 @@ def customer_ai_chat(id):
                            interactions=interactions, followups=followups, has_api_key=has_api_key)
 
 @app.route('/customers/<int:id>/whatsapp-upload', methods=['GET', 'POST'])
-def customer_whatsapp_upload(id):
-    c = Customer.query.get_or_404(id)
-    if request.method == 'POST':
-        content = ''
-        filename = ''
-        file_size = 0
-        
-        # 方式1：上传 ZIP 文件（WhatsApp 导出格式）
-        if 'zip_file' in request.files and request.files['zip_file'].filename:
-            f = request.files['zip_file']
-            filename = f.filename
-            file_size = len(f.read())
-            f.seek(0)
-            
-            # Save to temp and extract
-            import zipfile
-            import tempfile
-            try:
-                with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
-                    f.save(tmp.name)
-                    with zipfile.ZipFile(tmp.name, 'r') as zf:
-                        # Find the _chat.txt file (WhatsApp export format)
-                        txt_files = [n for n in zf.namelist() if n.endswith('.txt')]
-                        if txt_files:
-                            # Usually the main chat file
-                            chat_file = txt_files[0]
-                            content = zf.read(chat_file).decode('utf-8', errors='replace')
-                        else:
-                            # Try reading any readable file
-                            for name in zf.namelist():
-                                try:
-                                    content = zf.read(name).decode('utf-8', errors='replace')
-                                    if len(content) > 100:
-                                        break
-                                except:
-                                    continue
-                    os.unlink(tmp.name)
-            except Exception as e:
-                flash(f'ZIP 文件解析失败：{e}', 'warning')
-                return render_template('whatsapp_upload.html', customer=c)
-        
-        # 方式2：直接粘贴文本（备用）
-        if not content:
-            content = request.form.get('whatsapp_content', '').strip()
-        
-        if content:
-            # Truncate if too long
-            if len(content) > 50000:
-                content = content[:50000] + '\n\n...（记录过长，已截断至50000字）'
-            
-            # Generate summary
-            lines = content.split('\n')
-            summary = f'上传的聊天记录（{len(lines)}行, {len(content)}字）'
-            if filename:
-                summary += f' | 文件：{filename}（{file_size//1024}KB）'
-            
-            i = Interaction(
-                interaction_id=f'WA-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}-{id}',
-                customer_id=id,
-                channel='WhatsApp Chat',
-                direction='双方',
-                content_summary=summary,
-                whatsapp_content=content,
-                attachments=filename or None,
-                intent='客户跟进',
-                handled_by='用户上传'
-            )
-            db.session.add(i)
-            c.total_interactions = (c.total_interactions or 0) + 1
-            c.last_contact_date = datetime.utcnow()
-            c.last_contact_channel = 'WhatsApp'
-            db.session.commit()
-            flash('WhatsApp 聊天记录已上传！可以在 AI 助手中使用。', 'success')
-        else:
-            flash('请上传 WhatsApp 导出的 ZIP 文件或粘贴聊天内容', 'warning')
-        return redirect(url_for('customer_detail', id=id))
-    return render_template('whatsapp_upload.html', customer=c)
-
-
-# ─── WhatsApp Cloud API Integration ──────────────────────────────
-
-WA_GRAPH_VERSION = 'v22.0'
-
-def get_whatsapp_config():
-    """Return the active WhatsApp config (single row)"""
-    return WhatsAppConfig.query.order_by(WhatsAppConfig.id.desc()).first()
-
-
-def normalize_phone(raw):
-    """Normalize a phone number to E.164-ish digits (no '+').
-    For Malaysia numbers starting with '0', auto-prefix '60'."""
-    if not raw:
-        return ''
-    digits = ''.join(ch for ch in str(raw) if ch.isdigit())
-    if digits.startswith('0'):
-        digits = '60' + digits[1:]
-    return digits
-
-
-def phone_matches(a, b):
-    """Loose phone match: compare last 9 digits after normalization."""
-    na, nb = normalize_phone(a), normalize_phone(b)
-    if not na or not nb:
-        return False
-    return na[-9:] == nb[-9:]
-
-
-def whatsapp_send_text(to_phone, body):
-    """Send a text message via WhatsApp Cloud API.
-    Returns (ok, response_or_error_dict)."""
-    cfg = get_whatsapp_config()
-    if not cfg or not cfg.access_token or not cfg.phone_number_id:
-        return False, {'error': 'WhatsApp 尚未配置，请先到 /whatsapp/settings 设置'}
-    import urllib.request, urllib.error
-    url = f'https://graph.facebook.com/{WA_GRAPH_VERSION}/{cfg.phone_number_id}/messages'
-    payload = json.dumps({
-        'messaging_product': 'whatsapp',
-        'recipient_type': 'individual',
-        'to': normalize_phone(to_phone),
-        'type': 'text',
-        'text': {'preview_url': False, 'body': body}
-    }).encode('utf-8')
-    req = urllib.request.Request(
-        url, data=payload,
-        headers={
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {cfg.access_token}'
-        }, method='POST')
-    try:
-        resp = urllib.request.urlopen(req, timeout=30)
-        return True, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        try:
-            body_err = e.read().decode('utf-8', errors='replace')
-            return False, {'error': f'HTTP {e.code}: {body_err}'}
-        except Exception:
-            return False, {'error': f'HTTP {e.code}'}
-    except Exception as e:
-        return False, {'error': str(e)}
-
-
-def whatsapp_test_connection(cfg=None):
-    """Verify creds by calling GET /{phone_number_id}.
-    Returns (ok, info_or_error)."""
-    cfg = cfg or get_whatsapp_config()
-    if not cfg or not cfg.access_token or not cfg.phone_number_id:
-        return False, '配置不完整'
-    import urllib.request, urllib.error
-    url = f'https://graph.facebook.com/{WA_GRAPH_VERSION}/{cfg.phone_number_id}?fields=display_phone_number,verified_name,quality_rating'
-    req = urllib.request.Request(url, headers={'Authorization': f'Bearer {cfg.access_token}'})
-    try:
-        resp = urllib.request.urlopen(req, timeout=15)
-        return True, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        try:
-            return False, e.read().decode('utf-8', errors='replace')
-        except Exception:
-            return False, f'HTTP {e.code}'
-    except Exception as e:
-        return False, str(e)
-
-
-def find_or_create_customer_by_phone(phone, profile_name=None):
-    """Match a customer by phone (loose), else create a new lead."""
-    np = normalize_phone(phone)
-    # Exact match first
-    c = Customer.query.filter_by(phone_whatsapp=np).first()
-    if c:
-        return c, False
-    # Loose match across all customers (last 9 digits)
-    suffix = np[-9:]
-    if suffix:
-        candidates = Customer.query.filter(Customer.phone_whatsapp.isnot(None)).all()
-        for cand in candidates:
-            if phone_matches(cand.phone_whatsapp, np):
-                return cand, False
-    # Create new
-    c = Customer(
-        customer_id=generate_id('HK3'),
-        name=profile_name or f'WA-{np[-4:] if np else "unknown"}',
-        phone_whatsapp=np,
-        funnel_stage='询盘',
-        rfm_segment='B',
-        acquisition_source='WhatsApp API',
-        acquisition_date=date.today(),
-        notes='通过 WhatsApp 入站消息自动创建',
-        created_by='WhatsAppWebhook'
-    )
-    db.session.add(c)
-    db.session.flush()  # assign id without full commit yet
-    return c, True
-
-
-@app.route('/whatsapp/settings', methods=['GET', 'POST'])
-def whatsapp_settings():
-    cfg = get_whatsapp_config()
-    if request.method == 'POST':
-        action = request.form.get('action', 'save')
-        if action == 'save':
-            phone_number_id = request.form.get('phone_number_id', '').strip()
-            access_token = request.form.get('access_token', '').strip()
-            webhook_verify_token = request.form.get('webhook_verify_token', '').strip()
-            business_account_id = request.form.get('business_account_id', '').strip()
-            is_active = bool(request.form.get('is_active'))
-            if not cfg:
-                cfg = WhatsAppConfig()
-                db.session.add(cfg)
-            if phone_number_id:
-                cfg.phone_number_id = phone_number_id
-            # Don't overwrite token if user left masked placeholder
-            if access_token and access_token != '********':
-                cfg.access_token = access_token
-            if webhook_verify_token:
-                cfg.webhook_verify_token = webhook_verify_token
-            if business_account_id:
-                cfg.business_account_id = business_account_id
-            cfg.is_active = is_active
-            db.session.commit()
-            flash('WhatsApp 配置已保存！', 'success')
-            return redirect(url_for('whatsapp_settings'))
-        elif action == 'test':
-            ok, info = whatsapp_test_connection(cfg)
-            if ok:
-                # Cache display phone
-                if isinstance(info, dict) and info.get('display_phone_number'):
-                    cfg.display_phone = info.get('display_phone_number')
-                    db.session.commit()
-                flash(f'✅ 连接成功：{info}', 'success')
-            else:
-                flash(f'❌ 连接失败：{info}', 'warning')
-            return redirect(url_for('whatsapp_settings'))
-
-    masked_token = ''
-    if cfg and cfg.access_token:
-        masked_token = cfg.access_token[:8] + '...' + cfg.access_token[-6:] if len(cfg.access_token) > 20 else '已设置'
-    webhook_url = request.url_root.rstrip('/') + '/whatsapp/webhook'
-    return render_template('whatsapp_settings.html',
-                           cfg=cfg, masked_token=masked_token,
-                           webhook_url=webhook_url,
-                           graph_version=WA_GRAPH_VERSION)
-
-
-@app.route('/whatsapp/webhook', methods=['GET', 'POST'])
-def whatsapp_webhook():
-    cfg = get_whatsapp_config()
-    # ── Verification (Meta calls GET) ────────────────────────────
-    if request.method == 'GET':
-        mode = request.args.get('hub.mode')
-        token = request.args.get('hub.verify_token')
-        challenge = request.args.get('hub.challenge')
-        expected = cfg.webhook_verify_token if cfg else None
-        if mode == 'subscribe' and expected and token == expected:
-            return challenge or '', 200
-        return 'Forbidden', 403
-
-    # ── Inbound messages (POST) ──────────────────────────────────
-    try:
-        data = request.get_json(force=True, silent=True) or {}
-    except Exception:
-        data = {}
-
-    # Always log raw payload (truncated) for debugging
-    try:
-        raw_dump = json.dumps(data, ensure_ascii=False)[:4000]
-        app.logger.info(f'[WA Webhook] {raw_dump}')
-    except Exception:
-        pass
-
-    try:
-        for entry in data.get('entry', []) or []:
-            for change in entry.get('changes', []) or []:
-                value = change.get('value', {}) or {}
-                contacts = value.get('contacts', []) or []
-                profile_name_by_wa = {}
-                for ct in contacts:
-                    wa_id = ct.get('wa_id')
-                    profile_name = (ct.get('profile') or {}).get('name')
-                    if wa_id:
-                        profile_name_by_wa[wa_id] = profile_name
-
-                # Inbound messages
-                for msg in value.get('messages', []) or []:
-                    from_wa = msg.get('from')
-                    msg_id = msg.get('id')
-                    msg_type = msg.get('type', 'unknown')
-                    ts = msg.get('timestamp')
-                    try:
-                        ts_dt = datetime.utcfromtimestamp(int(ts)) if ts else datetime.utcnow()
-                    except Exception:
-                        ts_dt = datetime.utcnow()
-
-                    # Extract body for common types
-                    if msg_type == 'text':
-                        body = (msg.get('text') or {}).get('body', '')
-                    elif msg_type == 'button':
-                        body = (msg.get('button') or {}).get('text', '')
-                    elif msg_type == 'interactive':
-                        inter = msg.get('interactive') or {}
-                        body = json.dumps(inter, ensure_ascii=False)
-                    elif msg_type in ('image', 'video', 'audio', 'document', 'sticker'):
-                        media = msg.get(msg_type) or {}
-                        body = f'[{msg_type}] {media.get("caption") or media.get("filename") or media.get("id", "")}'
-                    elif msg_type == 'location':
-                        loc = msg.get('location') or {}
-                        body = f'[location] {loc.get("latitude")},{loc.get("longitude")} {loc.get("name") or ""}'
-                    else:
-                        body = json.dumps(msg, ensure_ascii=False)[:1000]
-
-                    # Idempotency: skip if same wamid recorded
-                    if msg_id and Interaction.query.filter_by(full_content_link=msg_id).first():
-                        continue
-
-                    customer, created = find_or_create_customer_by_phone(
-                        from_wa, profile_name_by_wa.get(from_wa)
-                    )
-
-                    summary = (body or '')[:200]
-                    inter = Interaction(
-                        interaction_id=f'WA-{ts_dt.strftime("%Y%m%d%H%M%S")}-{customer.id}',
-                        customer_id=customer.id,
-                        timestamp=ts_dt,
-                        channel='WhatsApp API',
-                        direction='入站',
-                        content_summary=summary,
-                        whatsapp_content=body,
-                        full_content_link=msg_id,
-                        intent='客户消息',
-                        handled_by='WhatsAppWebhook'
-                    )
-                    db.session.add(inter)
-                    customer.total_interactions = (customer.total_interactions or 0) + 1
-                    customer.last_contact_date = ts_dt
-                    customer.last_contact_channel = 'WhatsApp'
-                    if customer.funnel_stage in (None, '认知'):
-                        customer.funnel_stage = '询盘'
-                        customer.stage_updated_at = datetime.utcnow()
-
-                # Status updates (sent/delivered/read/failed) — best-effort log
-                for st in value.get('statuses', []) or []:
-                    st_id = st.get('id')
-                    st_status = st.get('status')
-                    # Find the matching outbound interaction by wamid
-                    if st_id:
-                        existing = Interaction.query.filter_by(full_content_link=st_id).first()
-                        if existing and st_status:
-                            tag = f'[{st_status}]'
-                            if existing.content_summary and tag not in existing.content_summary:
-                                existing.content_summary = (existing.content_summary + ' ' + tag)[:500]
-        db.session.commit()
-    except Exception as e:
-        app.logger.exception(f'[WA Webhook] error: {e}')
-        db.session.rollback()
-        # Still return 200 so Meta doesn't retry-storm us
-    return jsonify({'ok': True}), 200
-
-
-@app.route('/api/whatsapp/send', methods=['POST'])
-def api_whatsapp_send():
-    data = request.get_json(silent=True) or request.form
-    customer_id = data.get('customer_id')
-    message = (data.get('message') or '').strip()
-    if not customer_id or not message:
-        return jsonify({'ok': False, 'error': '缺少 customer_id 或 message'}), 400
-    try:
-        customer_id = int(customer_id)
-    except (TypeError, ValueError):
-        return jsonify({'ok': False, 'error': 'customer_id 无效'}), 400
-    c = Customer.query.get(customer_id)
-    if not c:
-        return jsonify({'ok': False, 'error': '客户不存在'}), 404
-    if not c.phone_whatsapp:
-        return jsonify({'ok': False, 'error': '该客户没有 WhatsApp 号码'}), 400
-
-    ok, resp = whatsapp_send_text(c.phone_whatsapp, message)
-    wamid = None
-    if ok:
-        try:
-            wamid = (resp.get('messages') or [{}])[0].get('id')
-        except Exception:
-            wamid = None
-
-    inter = Interaction(
-        interaction_id=f'WA-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}-{c.id}',
-        customer_id=c.id,
-        timestamp=datetime.utcnow(),
-        channel='WhatsApp API',
-        direction='出站',
-        content_summary=(message[:200] + (' [失败]' if not ok else '')),
-        whatsapp_content=message,
-        full_content_link=wamid,
-        intent='主动跟进' if ok else '发送失败',
-        handled_by='CRM'
-    )
-    db.session.add(inter)
-    c.total_interactions = (c.total_interactions or 0) + 1
-    c.last_contact_date = datetime.utcnow()
-    c.last_contact_channel = 'WhatsApp'
-    db.session.commit()
-
-    if not ok:
-        return jsonify({'ok': False, 'error': resp.get('error', '发送失败'), 'detail': resp}), 502
-    return jsonify({'ok': True, 'wamid': wamid, 'response': resp})
-
-
-# ─── WhatsApp Web (QR scan login via Playwright) ─────────────────
-
-@app.route('/whatsapp/qr')
-def whatsapp_qr_page():
-    if wa_web is None:
-        flash('Playwright 未安装，请运行 install_whatsapp_deps.sh', 'warning')
-    else:
-        wa_web.request_start()
-        _ensure_wa_poller()
-    return render_template('whatsapp_qr.html')
-
-
-@app.route('/whatsapp/qr-status')
-def whatsapp_qr_status():
-    if wa_web is None:
-        return jsonify({'status': 'error', 'last_error': 'whatsapp_web module not loaded'}), 503
-    return jsonify(wa_web.get_state())
-
-
-@app.route('/whatsapp/qr-refresh', methods=['POST'])
-def whatsapp_qr_refresh():
-    if wa_web is None:
-        return jsonify({'ok': False, 'error': 'module missing'}), 503
-    wa_web.request_refresh_qr()
-    return jsonify({'ok': True})
-
-
-@app.route('/api/whatsapp/web/send', methods=['POST'])
-def api_whatsapp_web_send():
-    """Send a WhatsApp message via the logged-in WhatsApp Web session."""
-    if wa_web is None:
-        return jsonify({'ok': False, 'error': 'WhatsApp Web 模块未加载'}), 503
-    data = request.get_json(silent=True) or request.form
-    customer_id = data.get('customer_id')
-    message = (data.get('message') or '').strip()
-    if not customer_id or not message:
-        return jsonify({'ok': False, 'error': '缺少 customer_id 或 message'}), 400
-    try:
-        customer_id = int(customer_id)
-    except (TypeError, ValueError):
-        return jsonify({'ok': False, 'error': 'customer_id 无效'}), 400
-    c = Customer.query.get(customer_id)
-    if not c:
-        return jsonify({'ok': False, 'error': '客户不存在'}), 404
-    if not c.phone_whatsapp:
-        return jsonify({'ok': False, 'error': '该客户没有 WhatsApp 号码'}), 400
-
-    res = wa_web.send_sync(c.phone_whatsapp, message, timeout=45)
-    inter = Interaction(
-        interaction_id=f'WAW-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}-{c.id}',
-        customer_id=c.id,
-        timestamp=datetime.utcnow(),
-        channel='WhatsApp Web',
-        direction='出站',
-        content_summary=(message[:200] + ('' if res.get('ok') else ' [失败]')),
-        whatsapp_content=message,
-        intent='主动跟进' if res.get('ok') else '发送失败',
-        handled_by='CRM/WAWeb'
-    )
-    db.session.add(inter)
-    c.total_interactions = (c.total_interactions or 0) + 1
-    c.last_contact_date = datetime.utcnow()
-    c.last_contact_channel = 'WhatsApp'
-    db.session.commit()
-    if not res.get('ok'):
-        return jsonify({'ok': False, 'error': res.get('error', '发送失败')}), 502
-    return jsonify({'ok': True})
-
-
-@app.route('/api/whatsapp/web/poll', methods=['POST'])
-def api_whatsapp_web_poll():
-    """Manually trigger a poll of incoming WA Web messages and import them."""
-    if wa_web is None:
-        return jsonify({'ok': False, 'error': 'module missing'}), 503
-    msgs = wa_web.poll_messages_sync(timeout=25)
-    imported = _import_wa_messages(msgs)
-    return jsonify({'ok': True, 'fetched': len(msgs), 'imported': imported})
-
-
-def _import_wa_messages(msgs):
-    """Persist polled WhatsApp Web messages as Interaction rows."""
-    if not msgs:
-        return 0
-    n = 0
-    for m in msgs:
-        try:
-            phone = m.get('phone') or ''
-            text = (m.get('text') or '').strip()
-            if not text:
-                continue
-            customer = None
-            if phone:
-                customer = find_or_create_customer_by_phone(phone, m.get('name'))
-            else:
-                # No phone — try to match by name only; otherwise skip.
-                if m.get('name'):
-                    customer = Customer.query.filter_by(name=m.get('name')).first()
-            if not customer:
-                continue
-            inter = Interaction(
-                interaction_id=f'WAW-IN-{datetime.utcnow().strftime("%Y%m%d%H%M%S%f")}-{customer.id}',
-                customer_id=customer.id,
-                timestamp=datetime.utcnow(),
-                channel='WhatsApp Web',
-                direction='入站',
-                content_summary=text[:200],
-                whatsapp_content=text,
-                intent='客户咨询',
-                handled_by='WAWebPoller'
-            )
-            db.session.add(inter)
-            customer.total_interactions = (customer.total_interactions or 0) + 1
-            customer.last_contact_date = datetime.utcnow()
-            customer.last_contact_channel = 'WhatsApp'
-            n += 1
-        except Exception as e:
-            app.logger.warning(f'[WA-Web import] {e}')
-    if n:
-        db.session.commit()
-    return n
-
-
-# Background poller — checks WhatsApp Web every N seconds.
-_wa_poller_started = False
-_wa_poller_lock = threading.Lock()
-
-
-def _wa_poller_loop():
-    while True:
-        try:
-            time.sleep(60)
-            if wa_web is None:
-                continue
-            st = wa_web.get_state()
-            if st.get('status') != 'ready':
-                continue
-            msgs = wa_web.poll_messages_sync(timeout=25)
-            if msgs:
-                with app.app_context():
-                    _import_wa_messages(msgs)
-        except Exception as e:
-            app.logger.warning(f'[wa-poller] {e}')
-
-
-def _ensure_wa_poller():
-    global _wa_poller_started
-    with _wa_poller_lock:
-        if _wa_poller_started:
-            return
-        _wa_poller_started = True
-        threading.Thread(target=_wa_poller_loop, name='wa-poller', daemon=True).start()
-
-
-@app.route('/customers/<int:id>/whatsapp-reply', methods=['GET'])
-def customer_whatsapp_reply(id):
-    """WhatsApp Web reply view — alias of conversation view, but uses WA Web sender."""
-    c = Customer.query.get_or_404(id)
-    interactions = (Interaction.query
-                    .filter_by(customer_id=id)
-                    .filter(Interaction.channel.in_(['WhatsApp API', 'WhatsApp Web', 'WhatsApp Chat']))
-                    .order_by(Interaction.timestamp.asc())
-                    .all())
-    wa_state = wa_web.get_state() if wa_web else {'status': 'stopped'}
-    return render_template('whatsapp_conversation.html',
-                           customer=c, interactions=interactions, cfg=get_whatsapp_config(),
-                           wa_state=wa_state, use_web=True)
-
-
-@app.route('/customers/<int:id>/whatsapp')
-def customer_whatsapp_conversation(id):
-    c = Customer.query.get_or_404(id)
-    interactions = (Interaction.query
-                    .filter_by(customer_id=id, channel='WhatsApp API')
-                    .order_by(Interaction.timestamp.asc())
-                    .all())
-    cfg = get_whatsapp_config()
-    return render_template('whatsapp_conversation.html',
-                           customer=c, interactions=interactions, cfg=cfg,
-                           wa_state=None, use_web=False)
-
-
-# ─── Init DB ─────────────────────────────────────────────────────
-
 def init_db():
     db.create_all()
     if Product.query.count() == 0:
@@ -1362,7 +745,6 @@ def init_db():
 if __name__ == '__main__':
     with app.app_context():
         init_db()
-    _ensure_wa_poller()
     print('🚀 HK3 CRM 启动中...')
-    print(f'📊 打开浏览器访问: http://127.0.0.1:5000')
+    print('📊 http://127.0.0.1:5001')
     app.run(debug=True, host='127.0.0.1', port=5001)

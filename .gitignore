@@ -1,8 +1,27 @@
+# ─── 客户数据（永远不能上 GitHub）───
 *.db
 *.db-journal
+*.sqlite
+*.sqlite3
+
+# ─── Python ───
 venv/
 __pycache__/
 *.pyc
+*.pyo
+.env
+
+# ─── WhatsApp / 敏感 ───
+wa_session/
 .gsheet-credentials.json
 .pid
-wa_session/
+
+# ─── 本地备份 ───
+*.bak
+*.bak.*
+local-backup/
+
+# ─── 系统 ───
+.DS_Store
+Thumbs.db
+*.log
