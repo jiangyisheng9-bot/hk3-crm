@@ -609,7 +609,45 @@ def settings_page():
     masked = current_key[:8] + '...' + current_key[-4:] if current_key and len(current_key) > 15 else ''
     return render_template('settings.html', has_key=bool(current_key), masked_key=masked)
 
-@app.route('/api/ai/analyze/<int:customer_id>', methods=['POST'])
+@app.route('/system/update', methods=['GET', 'POST'])
+def system_update():
+    import subprocess
+    result = None; error = None; git_log = []
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'check':
+            try:
+                subprocess.run(['git', 'fetch', 'origin'], capture_output=True, text=True, timeout=15, cwd=basedir)
+                r2 = subprocess.run(['git', 'status', '-sb'], capture_output=True, text=True, timeout=10, cwd=basedir)
+                log = subprocess.run(['git', 'log', '--oneline', '-5', 'HEAD..origin/main'], capture_output=True, text=True, timeout=10, cwd=basedir)
+                if 'behind' in r2.stdout:
+                    result = '🔔 有新版本可用！'
+                    git_log = [l for l in log.stdout.strip().split('\n') if l]
+                else:
+                    result = '✅ 当前已是最新版本'
+            except Exception as e:
+                error = f'检查失败: {e}'
+        elif action == 'update':
+            try:
+                r = subprocess.run(['git', 'pull', 'origin', 'main'], capture_output=True, text=True, timeout=30, cwd=basedir)
+                out = r.stdout + r.stderr
+                if r.returncode == 0:
+                    result = '✅ 更新成功！'
+                    if 'requirements.txt' in out:
+                        subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '-q'], timeout=60, cwd=basedir)
+                        result += '\n📦 依赖已更新'
+                    result += '\n\n🔄 请重启服务器以应用更新'
+                else:
+                    error = f'❌ 更新失败\n{out[:800]}'
+            except Exception as e:
+                error = f'更新失败: {e}'
+        elif action == 'restart':
+            try:
+                subprocess.Popen(['bash', os.path.join(basedir, 'restart.sh')], cwd=basedir)
+                return '服务器正在重启... 请稍后刷新页面', 200
+            except Exception as e:
+                error = f'重启失败: {e}\n请手动重启: python3 app.py'
+    return render_template('system.html', result=result, error=error, git_log=git_log)
 def api_ai_analyze(customer_id):
     """AI分析客户并生成跟进建议"""
     c = Customer.query.get_or_404(customer_id)

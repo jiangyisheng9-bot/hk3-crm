@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}系统更新{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <h1 class="text-2xl font-bold mb-6">🔧 系统更新</h1>
+
+    <!-- 当前版本 -->
+    <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100 mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-500">当前版本</p>
+                <p class="text-lg font-semibold">v1.0.0</p>
+                <p class="text-xs text-gray-400 mt-1">GitHub: jiangyisheng9-bot/hk3-crm</p>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="action" value="check">
+                <button type="submit" class="px-6 py-3 bg-hk3-600 text-white rounded-lg hover:bg-hk3-700 transition font-medium">
+                    🔍 检查更新
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 更新日志 -->
+    {% if git_log %}
+    <div class="bg-blue-50 rounded-xl p-4 border border-blue-200 mb-6">
+        <p class="font-medium text-blue-800 mb-2">📋 待更新内容：</p>
+        <ul class="text-sm text-blue-700 space-y-1">
+            {% for log in git_log %}
+            <li><code class="bg-blue-100 px-1 rounded">{{ log }}</code></li>
+            {% endfor %}
+        </ul>
+        <form method="POST" class="mt-4">
+            <input type="hidden" name="action" value="update">
+            <button type="submit" class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
+                    onclick="return confirm('确定要更新吗？更新后需要重启服务器。')">
+                ⬇️ 一键更新
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- 结果 / 错误 -->
+    {% if result %}
+    <div class="bg-green-50 rounded-xl p-4 border border-green-200 mb-6">
+        <pre class="text-sm text-green-800 whitespace-pre-wrap font-sans">{{ result }}</pre>
+        {% if '重启' in result %}
+        <form method="POST" class="mt-4">
+            <input type="hidden" name="action" value="restart">
+            <button type="submit" class="px-6 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-medium"
+                    onclick="return confirm('确定要重启服务器吗？页面会暂时断开。')">
+                🔄 重启服务器
+            </button>
+        </form>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="bg-red-50 rounded-xl p-4 border border-red-200 mb-6">
+        <pre class="text-sm text-red-800 whitespace-pre-wrap font-sans">{{ error }}</pre>
+        <div class="mt-4 text-sm text-gray-600">
+            <p class="font-medium mb-2">💡 手动操作：</p>
+            <code class="block bg-gray-100 p-2 rounded">cd hk3-crm && git pull && python3 app.py</code>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 数据安全提示 -->
+    <div class="bg-amber-50 rounded-xl p-4 border border-amber-200 text-sm text-amber-800">
+        <p class="font-medium mb-1">🔒 更新安全</p>
+        <p>更新代码不会影响您的客户数据（hk3_crm.db 在 .gitignore 中）。如有数据库结构变更，系统会在启动时自动迁移。</p>
+    </div>
+</div>
+{% endblock %}
