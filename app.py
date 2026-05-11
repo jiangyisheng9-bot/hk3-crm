@@ -725,7 +725,6 @@ def customer_ai_chat(id):
     return render_template('ai_chat.html', customer=c, orders=orders,
                            interactions=interactions, followups=followups, has_api_key=has_api_key)
 
-@app.route('/customers/<int:id>/whatsapp-upload', methods=['GET', 'POST'])
 # ─── Schema Migration ────────────────────────────────────────
 SCHEMA_VERSION = 1
 
