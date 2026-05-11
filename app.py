@@ -815,7 +815,7 @@ def customer_upload_chat(id):
 
     if not content:
         flash('请上传文件或粘贴聊天内容', 'warning')
-        return redirect(url_for('customer_ai_chat', id=id))
+        return redirect(url_for('customer_detail', id=id))
 
     summary = content[:150] + '...' if len(content) > 150 else content
 
@@ -834,7 +834,7 @@ def customer_upload_chat(id):
     db.session.commit()
 
     flash('✅ 聊天记录已上传！AI 分析时会参考这些内容。', 'success')
-    return redirect(url_for('customer_ai_chat', id=id))
+    return redirect(url_for('customer_detail', id=id))
 
 # ─── Schema Migration ────────────────────────────────────────
 SCHEMA_VERSION = 2
